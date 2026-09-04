@@ -211,8 +211,27 @@ let sync = loadSync();
 
 const GIST_FILENAME = 'aa-payroll-data.json';
 
+/* 通过密钥自动找到这个账号下已有的那份工资数据（按文件名匹配），
+   这样即使这台设备本地没记住"云端文件编号"，也能自动对上同一份数据，
+   不需要在手机和电脑之间手动传编号。 */
+async function findExistingGistId(){
+  try{
+    const resp = await fetch('https://api.github.com/gists?per_page=100', {
+      headers:{ 'Authorization':'token '+sync.token }
+    });
+    if(!resp.ok) return null;
+    const list = await resp.json();
+    const match = list.find(g => g.files && g.files[GIST_FILENAME]);
+    return match ? match.id : null;
+  }catch(e){ return null; }
+}
+
 async function pushToCloud(){
   if(!sync.token){ showAlert('请先设置 GitHub 同步密钥。'); return; }
+  if(!sync.gistId){
+    const existing = await findExistingGistId();
+    if(existing){ sync.gistId = existing; saveSync(); }
+  }
   const body = {
     description: 'A&A Payroll data (private, do not delete)',
     public: false,
@@ -251,6 +270,10 @@ async function pushToCloud(){
 
 async function pullFromCloud(){
   if(!sync.token){ showAlert('请先设置 GitHub 同步密钥。'); return; }
+  if(!sync.gistId){
+    const existing = await findExistingGistId();
+    if(existing){ sync.gistId = existing; saveSync(); }
+  }
   if(!sync.gistId){ showAlert('还没有云端数据，请先在另一台设备上点一次"推送到云端"。'); return; }
   showConfirm('从云端拉取数据会覆盖本机当前的所有记录，确定继续？', async ()=>{
     try{
