@@ -1,0 +1,761 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>A&A 工资本</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#2C2A24;
+    --paper:#EFE7D8;
+    --card:#FBF8F1;
+    --card-line:#DED2B8;
+    --timber:#B6672E;
+    --timber-dark:#8F4F22;
+    --steel:#46595F;
+    --olive:#5B6B45;
+    --rust:#A8432B;
+    --muted:#8A8271;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:'IBM Plex Sans', sans-serif;
+    -webkit-font-smoothing:antialiased;
+    padding-bottom:84px;
+    min-height:100vh;
+  }
+  h1,h2,h3,.label-font{font-family:'Oswald',sans-serif; letter-spacing:.02em;}
+  .num{font-family:'IBM Plex Mono', monospace;}
+
+  header{
+    background:var(--ink);
+    color:var(--paper);
+    padding:18px 18px 14px;
+    position:sticky; top:0; z-index:10;
+  }
+  header h1{ margin:0; font-size:22px; font-weight:600; color:#F3E9D2; }
+  header .sub{font-size:12.5px; color:#B8AF98; margin-top:2px;}
+  .ticks{ display:flex; align-items:flex-end; gap:3px; height:10px; margin-top:10px; overflow:hidden; }
+  .ticks span{width:1px; background:#6b6455; display:block;}
+  .ticks span.major{background:#a89a78; width:1.5px;}
+
+  main{padding:16px; max-width:640px; margin:0 auto;}
+
+  nav.tabbar{
+    position:fixed; bottom:0; left:0; right:0;
+    background:var(--ink);
+    display:flex;
+    z-index:20;
+    box-shadow:0 -2px 10px rgba(0,0,0,.25);
+  }
+  nav.tabbar button{
+    flex:1; background:none; border:none; color:#9C9484;
+    padding:10px 4px 12px; font-family:'Oswald',sans-serif; font-size:12.5px;
+    display:flex; flex-direction:column; align-items:center; gap:4px;
+    cursor:pointer;
+  }
+  nav.tabbar button.active{color:#F3E9D2;}
+  nav.tabbar button.active svg{stroke:var(--timber);}
+  nav.tabbar svg{width:20px; height:20px; stroke:#9C9484; fill:none; stroke-width:1.7;}
+
+  .ticket{
+    background:var(--card);
+    border:1px solid var(--card-line);
+    border-radius:3px;
+    padding:14px 14px 12px;
+    margin-bottom:12px;
+    position:relative;
+  }
+  .ticket::before{
+    content:"";
+    position:absolute; top:0; left:14px; right:14px; height:0;
+    border-top:2px dashed #D9CBA8;
+  }
+  .ticket-body{padding-top:8px;}
+  .ticket-row{display:flex; justify-content:space-between; align-items:baseline; gap:10px;}
+  .ticket-title{font-weight:600; font-size:15.5px;}
+  .ticket-meta{font-size:12.5px; color:var(--muted); margin-top:2px;}
+  .ticket-amt{font-family:'IBM Plex Mono',monospace; font-weight:600; font-size:16px;}
+
+  .status-pill{
+    display:inline-block; font-size:11.5px; padding:2px 8px; border-radius:20px;
+    font-family:'Oswald',sans-serif; letter-spacing:.03em;
+  }
+  .status-paid{background:#E4E9DC; color:var(--olive);}
+  .status-unpaid{background:#F3DED4; color:var(--rust);}
+
+  label{display:block; font-size:12.5px; color:var(--muted); margin:12px 0 5px; font-family:'Oswald',sans-serif; letter-spacing:.02em;}
+  input, select, textarea{
+    width:100%; padding:10px 11px; border:1px solid var(--card-line); border-radius:3px;
+    font-size:15px; background:var(--card); color:var(--ink); font-family:'IBM Plex Sans',sans-serif;
+  }
+  input:focus, select:focus, textarea:focus{outline:2px solid var(--timber); outline-offset:1px;}
+  .row2{display:flex; gap:10px;}
+  .row2 > div{flex:1;}
+
+  button.btn{
+    font-family:'Oswald',sans-serif; letter-spacing:.02em;
+    background:var(--timber); color:#fff; border:none; border-radius:3px;
+    padding:12px 16px; font-size:15px; cursor:pointer; width:100%;
+    margin-top:16px;
+  }
+  button.btn:active{background:var(--timber-dark);}
+  button.btn-outline{ background:none; border:1px solid var(--ink); color:var(--ink); }
+  button.btn-steel{background:var(--steel);}
+  button.btn-sm{ width:auto; padding:6px 12px; font-size:12.5px; margin-top:0; border-radius:20px; }
+  .btn-row{display:flex; gap:8px; margin-top:10px;}
+  .btn-row button{flex:1;}
+
+  h2.section-title{
+    font-size:15px; text-transform:uppercase; letter-spacing:.08em;
+    color:var(--steel); margin:22px 0 10px; font-weight:500;
+  }
+  h2.section-title:first-child{margin-top:0;}
+
+  .empty{ text-align:center; padding:40px 20px; color:var(--muted); font-size:14px; }
+
+  .summary-grid{display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:14px;}
+  .summary-box{ background:var(--ink); color:var(--paper); border-radius:4px; padding:12px 14px; }
+  .summary-box .num{font-size:20px; font-weight:600; color:#F3E9D2;}
+  .summary-box .cap{font-size:11.5px; color:#A79E8B; font-family:'Oswald',sans-serif; letter-spacing:.03em;}
+
+  .extra-row{ display:flex; gap:8px; margin-top:8px; align-items:center; }
+  .extra-row input:first-child{ flex:1.4; }
+  .extra-row input:nth-child(2){ flex:1; }
+  .extra-row button{
+    background:none; border:1px solid var(--card-line); color:var(--rust);
+    border-radius:3px; padding:9px 10px; font-size:13px; cursor:pointer; flex:0 0 auto;
+  }
+  .preset-row{ display:flex; gap:8px; margin:10px 0 4px; flex-wrap:wrap; }
+  .preset-row button{
+    background:var(--card); border:1px solid var(--card-line); color:var(--ink);
+    font-family:'Oswald',sans-serif; font-size:12.5px; padding:6px 12px; border-radius:20px; cursor:pointer;
+  }
+  .preset-row button.active{ background:var(--ink); color:#F3E9D2; border-color:var(--ink); }
+
+  dialog{ border:none; border-radius:6px; padding:0; width:92%; max-width:420px; background:var(--paper); }
+  dialog::backdrop{background:rgba(20,18,14,.55);}
+  .dialog-inner{padding:18px;}
+  .dialog-title{font-family:'Oswald',sans-serif; font-size:17px; margin:0 0 12px;}
+
+  @media print{
+    body *{visibility:hidden;}
+    #printArea, #printArea *{visibility:visible;}
+    #printArea{position:absolute; top:0; left:0; width:100%; padding:20px; background:#fff; color:#000;}
+    header, nav.tabbar, main{display:none !important;}
+    #printAreaWrap{display:block !important;}
+  }
+  #printAreaWrap{display:none;}
+
+</style>
+</head>
+<body>
+
+<header>
+  <h1>A&amp;A 工资本</h1>
+  <div class="sub">工人日结工资记录 · Job Wages Ledger</div>
+  <div class="ticks" id="ticks"></div>
+</header>
+
+<main id="main"></main>
+
+<div id="printAreaWrap"><div id="printArea"></div></div>
+
+<nav class="tabbar">
+  <button data-tab="log" class="active">
+    <svg viewBox="0 0 24 24"><path d="M4 4h16v16H4z"/><path d="M8 9h8M8 13h8M8 17h5"/></svg>
+    记工
+  </button>
+  <button data-tab="workers">
+    <svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3 20c0-3.3 2.7-5 6-5s6 1.7 6 5"/><circle cx="17" cy="9" r="2.3"/><path d="M15.5 14c2.6.3 4.5 1.7 4.5 4.3"/></svg>
+    工人
+  </button>
+  <button data-tab="settle">
+    <svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="1"/><path d="M8 8h8M8 12h8M8 16h4"/></svg>
+    结算
+  </button>
+</nav>
+
+<dialog id="dlg"><div class="dialog-inner" id="dlgBody"></div></dialog>
+
+<script>
+/* ---------- storage ---------- */
+const DB_KEY = 'aa_payroll_v1';
+function loadDB(){
+  try{
+    const raw = localStorage.getItem(DB_KEY);
+    if(raw) return JSON.parse(raw);
+  }catch(e){}
+  return { workers:[], entries:[] };
+}
+function saveDB(){ localStorage.setItem(DB_KEY, JSON.stringify(db)); }
+let db = loadDB();
+if(!db.workers) db.workers = [];
+if(!db.entries) db.entries = [];
+
+/* ---------- helpers ---------- */
+function todayStr(){ return new Date().toISOString().slice(0,10); }
+function addDays(dateStr, n){
+  const d = new Date(dateStr+'T00:00:00');
+  d.setDate(d.getDate()+n);
+  return d.toISOString().slice(0,10);
+}
+function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
+function fmt(n){ return '$'+(Math.round((n+Number.EPSILON)*100)/100).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function worker(id){ return db.workers.find(w=>w.id===id); }
+function dOf(s){ return s.slice(5).replace('-','/'); }
+
+/* entryPay: 正常工资 + 所有自定义项目金额之和（向后兼容旧的 otHours/otRate 记录） */
+function entryPay(e){
+  const reg = (e.dayFraction||0) * (e.dailyRate||0);
+  let extrasTotal = 0;
+  if(Array.isArray(e.extras)){
+    extrasTotal = e.extras.reduce((s,x)=> s + (parseFloat(x.amount)||0), 0);
+  } else if(e.otHours && e.otRate){
+    extrasTotal = e.otHours * e.otRate; // 兼容旧数据
+  }
+  return reg + extrasTotal;
+}
+function extrasLabel(e){
+  if(Array.isArray(e.extras) && e.extras.length){
+    return e.extras.map(x=> (x.name||'额外项目') + ' ' + fmt(parseFloat(x.amount)||0)).join(' · ');
+  }
+  return '';
+}
+
+/* ---------- render ticks ---------- */
+(function drawTicks(){
+  const el = document.getElementById('ticks');
+  for(let i=0;i<60;i++){
+    const s = document.createElement('span');
+    const major = i%5===0;
+    s.className = major?'major':'';
+    s.style.height = major? '10px':'6px';
+    el.appendChild(s);
+  }
+})();
+
+/* ---------- tab handling ---------- */
+let activeTab = 'log';
+document.querySelectorAll('nav.tabbar button').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('nav.tabbar button').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    activeTab = btn.dataset.tab;
+    render();
+  });
+});
+
+function render(){
+  const main = document.getElementById('main');
+  if(activeTab==='log') main.innerHTML = renderLog();
+  else if(activeTab==='workers') main.innerHTML = renderWorkers();
+  else if(activeTab==='settle') main.innerHTML = renderSettle();
+  bindEvents();
+  if(activeTab==='log'){
+    // start with one empty extra row
+    addExtraRow();
+  }
+}
+
+/* ================= 记工 (Daily Log) ================= */
+function renderLog(){
+  if(db.workers.length===0){
+    return `<div class="empty">还没有工人资料<br>请先到「工人」页添加工人</div>`;
+  }
+  const recent = [...db.entries].sort((a,b)=> b.date.localeCompare(a.date) || b.id.localeCompare(a.id)).slice(0,25);
+  const options = db.workers.map(w=>`<option value="${w.id}">${w.name}（日薪 ${fmt(w.dailyRate)}）</option>`).join('');
+
+  return `
+  <h2 class="section-title">新增一条记录</h2>
+  <div class="ticket">
+    <div class="ticket-body">
+      <label>工人</label>
+      <select id="f_worker">${options}</select>
+
+      <div class="row2">
+        <div>
+          <label>日期</label>
+          <input type="date" id="f_date" value="${todayStr()}">
+        </div>
+        <div>
+          <label>工作量</label>
+          <select id="f_frac">
+            <option value="1">整天</option>
+            <option value="0.5">半天</option>
+            <option value="custom">自定义比例</option>
+          </select>
+        </div>
+      </div>
+      <input type="number" id="f_frac_custom" step="0.1" min="0" max="2" placeholder="例如 0.75" style="display:none; margin-top:8px;">
+
+      <label>干活地址 / 项目</label>
+      <input type="text" id="f_loc" placeholder="例如：Chatswood 厨房安装">
+
+      <label>额外项目（加班费、材料费等，可自己命名和填金额）</label>
+      <div id="extrasContainer"></div>
+      <div class="btn-row">
+        <button class="btn btn-outline btn-sm" id="addExtraBtn" style="width:auto;">+ 添加一项</button>
+      </div>
+
+      <label>备注（可选）</label>
+      <input type="text" id="f_note" placeholder="例如：搬运额外材料">
+
+      <button class="btn" id="addEntryBtn">保存记录</button>
+    </div>
+  </div>
+
+  <h2 class="section-title">最近记录</h2>
+  ${recent.length===0 ? '<div class="empty">暂无记工记录</div>' : recent.map(e=>{
+    const w = worker(e.workerId);
+    if(!w) return '';
+    const ex = extrasLabel(e);
+    return `
+    <div class="ticket">
+      <div class="ticket-body">
+        <div class="ticket-row">
+          <div>
+            <div class="ticket-title">${w.name} · ${dOf(e.date)}</div>
+            <div class="ticket-meta">${e.location? e.location+' · ':''}${e.dayFraction===1?'整天':e.dayFraction===0.5?'半天':(e.dayFraction+'天')}</div>
+            ${ex? `<div class="ticket-meta">${ex}</div>` : ''}
+          </div>
+          <div style="text-align:right;">
+            <div class="ticket-amt">${fmt(entryPay(e))}</div>
+            <span class="status-pill ${e.paid?'status-paid':'status-unpaid'}">${e.paid?'已付':'未付'}</span>
+          </div>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-outline btn-sm" data-del-entry="${e.id}">删除</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('')}
+  `;
+}
+
+function addExtraRow(name, amount){
+  const container = document.getElementById('extrasContainer');
+  if(!container) return;
+  const row = document.createElement('div');
+  row.className = 'extra-row';
+  row.innerHTML = `
+    <input type="text" placeholder="项目名称，例如：加班" class="extra-name" value="${name||''}">
+    <input type="number" placeholder="金额" step="1" class="extra-amount" value="${amount!==undefined?amount:''}">
+    <button type="button" class="extra-remove">删除</button>
+  `;
+  row.querySelector('.extra-remove').addEventListener('click', ()=> row.remove());
+  container.appendChild(row);
+}
+
+/* ================= 工人 (Workers) ================= */
+function renderWorkers(){
+  return `
+  <h2 class="section-title">添加工人</h2>
+  <div class="ticket">
+    <div class="ticket-body">
+      <label>姓名</label>
+      <input type="text" id="w_name" placeholder="工人姓名">
+      <label>日薪 ($)</label>
+      <input type="number" id="w_rate" step="1" min="0" placeholder="300">
+      <button class="btn" id="addWorkerBtn">添加</button>
+    </div>
+  </div>
+
+  <h2 class="section-title">工人列表 (${db.workers.length})</h2>
+  ${db.workers.length===0? '<div class="empty">还没有添加工人</div>' : db.workers.map(w=>`
+    <div class="ticket">
+      <div class="ticket-body">
+        <div class="ticket-row">
+          <div>
+            <div class="ticket-title">${w.name}</div>
+            <div class="ticket-meta">日薪 <span class="num">${fmt(w.dailyRate)}</span></div>
+          </div>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-outline btn-sm" data-edit-worker="${w.id}">修改日薪</button>
+          <button class="btn btn-outline btn-sm" data-del-worker="${w.id}">删除</button>
+        </div>
+      </div>
+    </div>
+  `).join('')}
+
+  <h2 class="section-title">数据备份</h2>
+  <div class="ticket">
+    <div class="ticket-body">
+      <div class="ticket-meta" style="margin-bottom:10px;">数据保存在本机浏览器中。建议定期导出备份，换手机或清除浏览器数据前请先导出。</div>
+      <div class="btn-row">
+        <button class="btn btn-outline btn-sm" id="exportBtn" style="width:auto;">导出备份 (JSON)</button>
+        <button class="btn btn-outline btn-sm" id="importBtn" style="width:auto;">导入备份</button>
+      </div>
+      <input type="file" id="importFile" accept="application/json" style="display:none;">
+    </div>
+  </div>
+  `;
+}
+
+/* ================= 结算 (Settlement) — 自由日期范围 ================= */
+function renderSettle(){
+  if(db.workers.length===0){
+    return `<div class="empty">还没有工人资料<br>请先到「工人」页添加工人</div>`;
+  }
+  if(!window._rangeStart || !window._rangeEnd){
+    window._rangeStart = addDays(todayStr(), -6);
+    window._rangeEnd = todayStr();
+    window._activePreset = '7';
+  }
+  const start = window._rangeStart, end = window._rangeEnd;
+
+  const entriesInRange = db.entries.filter(e=> e.date>=start && e.date<=end);
+  const byWorker = {};
+  entriesInRange.forEach(e=>{
+    byWorker[e.workerId] = byWorker[e.workerId] || [];
+    byWorker[e.workerId].push(e);
+  });
+
+  const totalAll = entriesInRange.reduce((s,e)=>s+entryPay(e),0);
+  const totalUnpaid = entriesInRange.filter(e=>!e.paid).reduce((s,e)=>s+entryPay(e),0);
+
+  const workerBlocks = Object.keys(byWorker).map(wid=>{
+    const w = worker(wid);
+    if(!w) return '';
+    const list = byWorker[wid].sort((a,b)=>a.date.localeCompare(b.date));
+    const subtotal = list.reduce((s,e)=>s+entryPay(e),0);
+    const allPaid = list.every(e=>e.paid);
+    return `
+    <div class="ticket">
+      <div class="ticket-body">
+        <div class="ticket-row">
+          <div class="ticket-title">${w.name}</div>
+          <div class="ticket-amt">${fmt(subtotal)}</div>
+        </div>
+        <div class="ticket-meta" style="margin-bottom:8px;">${list.length} 条记录 · ${dOf(start)} ~ ${dOf(end)}</div>
+        ${list.map(e=>{
+          const ex = extrasLabel(e);
+          return `
+          <div style="padding:4px 0; border-top:1px solid var(--card-line); font-size:13px;">
+            <div style="display:flex; justify-content:space-between;">
+              <span>${dOf(e.date)} ${e.location?'· '+e.location:''}</span>
+              <span class="num">${fmt(entryPay(e))}</span>
+            </div>
+            ${ex? `<div style="color:var(--muted); font-size:12px;">${ex}</div>` : ''}
+          </div>`;
+        }).join('')}
+        <div class="btn-row">
+          <button class="btn btn-sm ${allPaid?'btn-outline':''}" data-toggle-paid="${wid}" data-start="${start}" data-end="${end}" style="flex:1;">
+            ${allPaid? '标记为未付' : '标记本次为已付'}
+          </button>
+          <button class="btn btn-steel btn-sm" data-print="${wid}" data-start="${start}" data-end="${end}" style="flex:1;">打印/导出PDF</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+
+  const monthMap = {};
+  db.entries.forEach(e=>{
+    const wid=e.workerId;
+    monthMap[wid] = monthMap[wid]||{paid:0, unpaid:0};
+    if(e.paid) monthMap[wid].paid += entryPay(e); else monthMap[wid].unpaid += entryPay(e);
+  });
+  const monthRows = db.workers.map(w=>{
+    const m = monthMap[w.id]||{paid:0,unpaid:0};
+    return `<div style="display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px solid var(--card-line); font-size:14px;">
+      <span>${w.name}</span>
+      <span class="num">已付 ${fmt(m.paid)} · 未付 ${fmt(m.unpaid)}</span>
+    </div>`;
+  }).join('');
+
+  return `
+  <h2 class="section-title">选择结算范围（可自由调整）</h2>
+  <div class="preset-row">
+    <button data-preset="7" class="${window._activePreset==='7'?'active':''}">最近7天</button>
+    <button data-preset="14" class="${window._activePreset==='14'?'active':''}">最近14天</button>
+    <button data-preset="month" class="${window._activePreset==='month'?'active':''}">本月至今</button>
+  </div>
+  <div class="row2">
+    <div>
+      <label>开始日期</label>
+      <input type="date" id="r_start" value="${start}">
+    </div>
+    <div>
+      <label>结束日期</label>
+      <input type="date" id="r_end" value="${end}">
+    </div>
+  </div>
+
+  <div class="summary-grid" style="margin-top:14px;">
+    <div class="summary-box">
+      <div class="num">${fmt(totalAll)}</div>
+      <div class="cap">本次范围总工资</div>
+    </div>
+    <div class="summary-box" style="background:var(--rust);">
+      <div class="num">${fmt(totalUnpaid)}</div>
+      <div class="cap">本次范围未付</div>
+    </div>
+  </div>
+
+  ${workerBlocks || '<div class="empty">该时间范围内暂无记录</div>'}
+
+  <h2 class="section-title">累计汇总（全部记录）</h2>
+  <div class="ticket"><div class="ticket-body">${monthRows || '<div class="empty">暂无数据</div>'}</div></div>
+  `;
+}
+
+/* ---------- print / 导出 PDF ----------
+   用浏览器自带的“打印”功能生成 PDF：不需要联网、不需要外部组件，
+   中文由浏览器自己渲染，手机和电脑通用。
+   手机上点击后选择“存储为 PDF”，电脑上在打印弹窗里选择“另存为 PDF”。 */
+function printPayslip(workerId, start, end){
+  if(window.self !== window.top){
+    showAlert('打印功能在预览窗口里被禁用了。请先下载这个文件，用浏览器直接打开（或部署到你的网站上）再点这个按钮。');
+    return;
+  }
+  const w = worker(workerId);
+  const list = db.entries.filter(e=>e.workerId===workerId && e.date>=start && e.date<=end).sort((a,b)=>a.date.localeCompare(b.date));
+  const total = list.reduce((s,e)=>s+entryPay(e),0);
+
+  const rows = list.map(e=>{
+    const ex = extrasLabel(e);
+    return `
+    <tr>
+      <td style="padding:7px 4px; border-bottom:1px solid #ddd;">${e.date}</td>
+      <td style="padding:7px 4px; border-bottom:1px solid #ddd;">${e.location||'-'}</td>
+      <td style="padding:7px 4px; border-bottom:1px solid #ddd; text-align:center;">${e.dayFraction===1?'整天':e.dayFraction===0.5?'半天':e.dayFraction}</td>
+      <td style="padding:7px 4px; border-bottom:1px solid #ddd;">${ex||'-'}</td>
+      <td style="padding:7px 4px; border-bottom:1px solid #ddd; text-align:right; white-space:nowrap;">${fmt(entryPay(e))}</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('printArea').innerHTML = `
+    <div style="font-family:Arial,'PingFang SC','Microsoft YaHei',sans-serif; max-width:700px; color:#111;">
+      <div style="font-size:20px; font-weight:700; margin-bottom:2px;">A&amp;A Joinery — 工资单</div>
+      <div style="font-size:12px; color:#777; margin-bottom:18px;">Payslip</div>
+      <div style="font-size:14px; margin-bottom:4px;"><b>工人：</b>${w.name}</div>
+      <div style="font-size:14px; margin-bottom:16px;"><b>结算周期：</b>${start} ~ ${end}</div>
+      <table style="width:100%; border-collapse:collapse; font-size:13px;">
+        <thead>
+          <tr style="border-bottom:2px solid #111; text-align:left;">
+            <th style="padding:6px 4px;">日期</th>
+            <th style="padding:6px 4px;">地点/项目</th>
+            <th style="padding:6px 4px; text-align:center;">工作量</th>
+            <th style="padding:6px 4px;">额外项目</th>
+            <th style="padding:6px 4px; text-align:right;">金额</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <div style="text-align:right; font-size:17px; font-weight:700; margin-top:16px; padding-top:10px; border-top:2px solid #111;">
+        合计 Total：${fmt(total)}
+      </div>
+    </div>
+  `;
+  window.print();
+}
+
+/* ---------- custom confirm/alert (native confirm()/alert() can be blocked
+   by mobile browsers when the site is launched from an "Add to Home Screen" icon) ---------- */
+function showConfirm(message, onYes){
+  const dlg = document.getElementById('dlg');
+  document.getElementById('dlgBody').innerHTML = `
+    <div class="dialog-title">确认</div>
+    <div style="margin-bottom:16px; font-size:14.5px; line-height:1.5;">${message}</div>
+    <div class="btn-row">
+      <button class="btn btn-outline" id="cf_no">取消</button>
+      <button class="btn" id="cf_yes">确定</button>
+    </div>
+  `;
+  dlg.showModal();
+  document.getElementById('cf_no').onclick = ()=>dlg.close();
+  document.getElementById('cf_yes').onclick = ()=>{ dlg.close(); onYes(); };
+}
+function showAlert(message){
+  const dlg = document.getElementById('dlg');
+  document.getElementById('dlgBody').innerHTML = `
+    <div class="dialog-title">提示</div>
+    <div style="margin-bottom:16px; font-size:14.5px; line-height:1.5;">${message}</div>
+    <div class="btn-row">
+      <button class="btn" id="al_ok">好的</button>
+    </div>
+  `;
+  dlg.showModal();
+  document.getElementById('al_ok').onclick = ()=>dlg.close();
+}
+
+/* ---------- dialogs ---------- */
+function openEditWorker(id){
+  const w = worker(id);
+  const dlg = document.getElementById('dlg');
+  document.getElementById('dlgBody').innerHTML = `
+    <div class="dialog-title">修改 ${w.name} 的日薪</div>
+    <label>日薪 ($)</label>
+    <input type="number" id="ew_rate" value="${w.dailyRate}">
+    <div class="btn-row">
+      <button class="btn btn-outline" id="ew_cancel">取消</button>
+      <button class="btn" id="ew_save">保存</button>
+    </div>
+  `;
+  dlg.showModal();
+  document.getElementById('ew_cancel').onclick = ()=>dlg.close();
+  document.getElementById('ew_save').onclick = ()=>{
+    w.dailyRate = parseFloat(document.getElementById('ew_rate').value)||w.dailyRate;
+    saveDB(); dlg.close(); render();
+  };
+}
+
+/* ---------- events ---------- */
+function bindEvents(){
+  // log tab
+  const fracSel = document.getElementById('f_frac');
+  if(fracSel){
+    fracSel.addEventListener('change', ()=>{
+      document.getElementById('f_frac_custom').style.display = fracSel.value==='custom' ? 'block':'none';
+    });
+  }
+  const addExtraBtn = document.getElementById('addExtraBtn');
+  if(addExtraBtn) addExtraBtn.addEventListener('click', ()=> addExtraRow());
+
+  const addEntryBtn = document.getElementById('addEntryBtn');
+  if(addEntryBtn){
+    addEntryBtn.addEventListener('click', ()=>{
+      const wid = document.getElementById('f_worker').value;
+      const w = worker(wid);
+      const date = document.getElementById('f_date').value || todayStr();
+      let frac = document.getElementById('f_frac').value;
+      if(frac==='custom') frac = parseFloat(document.getElementById('f_frac_custom').value)||0;
+      else frac = parseFloat(frac);
+      const loc = document.getElementById('f_loc').value.trim();
+      const note = document.getElementById('f_note').value.trim();
+
+      const extras = [];
+      document.querySelectorAll('#extrasContainer .extra-row').forEach(row=>{
+        const name = row.querySelector('.extra-name').value.trim();
+        const amount = parseFloat(row.querySelector('.extra-amount').value);
+        if(name || (amount && amount!==0)){
+          extras.push({ name: name || '额外项目', amount: amount||0 });
+        }
+      });
+
+      db.entries.push({
+        id: uid(), workerId: wid, date, location: loc,
+        dayFraction: frac, extras, note,
+        dailyRate: w.dailyRate,
+        paid: false
+      });
+      saveDB(); render();
+    });
+  }
+  document.querySelectorAll('[data-del-entry]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      showConfirm('删除这条记工记录？', ()=>{
+        db.entries = db.entries.filter(e=>e.id!==btn.dataset.delEntry);
+        saveDB(); render();
+      });
+    });
+  });
+
+  // workers tab
+  const addWorkerBtn = document.getElementById('addWorkerBtn');
+  if(addWorkerBtn){
+    addWorkerBtn.addEventListener('click', ()=>{
+      const name = document.getElementById('w_name').value.trim();
+      const rate = parseFloat(document.getElementById('w_rate').value);
+      if(!name || !rate){ showAlert('请填写姓名和日薪'); return; }
+      db.workers.push({id:uid(), name, dailyRate:rate});
+      saveDB(); render();
+    });
+  }
+  document.querySelectorAll('[data-edit-worker]').forEach(btn=>{
+    btn.addEventListener('click', ()=>openEditWorker(btn.dataset.editWorker));
+  });
+  document.querySelectorAll('[data-del-worker]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      showConfirm('删除该工人？其历史记工记录会保留但不再关联工人姓名。', ()=>{
+        db.workers = db.workers.filter(w=>w.id!==btn.dataset.delWorker);
+        saveDB(); render();
+      });
+    });
+  });
+  const exportBtn = document.getElementById('exportBtn');
+  if(exportBtn){
+    exportBtn.addEventListener('click', ()=>{
+      const blob = new Blob([JSON.stringify(db,null,2)], {type:'application/json'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'aa-payroll-backup-'+todayStr()+'.json';
+      a.click(); URL.revokeObjectURL(url);
+    });
+  }
+  const importBtn = document.getElementById('importBtn');
+  const importFile = document.getElementById('importFile');
+  if(importBtn){
+    importBtn.addEventListener('click', ()=>importFile.click());
+    importFile.addEventListener('change', (ev)=>{
+      const file = ev.target.files[0];
+      if(!file) return;
+      const reader = new FileReader();
+      reader.onload = ()=>{
+        try{
+          const data = JSON.parse(reader.result);
+          showConfirm('导入将覆盖当前所有数据，确定继续？', ()=>{
+            db = data; if(!db.workers) db.workers=[]; if(!db.entries) db.entries=[];
+            saveDB(); render();
+          });
+        }catch(e){ showAlert('文件格式不正确'); }
+      };
+      reader.readAsText(file);
+    });
+  }
+
+  // settle tab
+  const rStart = document.getElementById('r_start');
+  const rEnd = document.getElementById('r_end');
+  if(rStart && rEnd){
+    const applyCustom = ()=>{
+      window._rangeStart = rStart.value;
+      window._rangeEnd = rEnd.value;
+      window._activePreset = null;
+      render();
+    };
+    rStart.addEventListener('change', applyCustom);
+    rEnd.addEventListener('change', applyCustom);
+  }
+  document.querySelectorAll('[data-preset]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const p = btn.dataset.preset;
+      window._activePreset = p;
+      if(p==='7'){ window._rangeStart = addDays(todayStr(),-6); window._rangeEnd = todayStr(); }
+      else if(p==='14'){ window._rangeStart = addDays(todayStr(),-13); window._rangeEnd = todayStr(); }
+      else if(p==='month'){
+        const d = new Date();
+        window._rangeStart = d.toISOString().slice(0,8)+'01';
+        window._rangeEnd = todayStr();
+      }
+      render();
+    });
+  });
+  document.querySelectorAll('[data-toggle-paid]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const wid = btn.dataset.togglePaid;
+      const s = btn.dataset.start, e2 = btn.dataset.end;
+      const list = db.entries.filter(e=>e.workerId===wid && e.date>=s && e.date<=e2);
+      const allPaid = list.every(e=>e.paid);
+      list.forEach(e=>e.paid = !allPaid);
+      saveDB(); render();
+    });
+  });
+  document.querySelectorAll('[data-print]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      printPayslip(btn.dataset.print, btn.dataset.start, btn.dataset.end);
+    });
+  });
+}
+
+render();
+</script>
+</body>
+</html>
