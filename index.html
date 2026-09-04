@@ -264,7 +264,7 @@ async function pushToCloud(){
     showAlert('已成功推送到云端。');
     render();
   }catch(e){
-    showAlert('推送失败，请检查网络连接后重试。');
+    showAlert('推送失败，请检查网络连接后重试。（详细信息：'+e.message+'）');
   }
 }
 
@@ -299,7 +299,7 @@ async function pullFromCloud(){
       showAlert('已从云端拉取最新数据。');
       render();
     }catch(e){
-      showAlert('拉取失败，请检查网络连接后重试。');
+      showAlert('拉取失败，请检查网络连接后重试。（详细信息：'+e.message+'）');
     }
   });
 }
@@ -309,6 +309,24 @@ function disconnectSync(){
     sync = { token:'', gistId: sync.gistId, lastSync:'' };
     saveSync(); render();
   });
+}
+
+/* 记工页、结算页顶部的快捷同步条，免得每次都要跑回工人页操作 */
+function renderSyncBar(){
+  if(!sync.token){
+    return `<div class="ticket" style="padding:10px 14px; margin-bottom:14px;">
+      <div class="ticket-meta" style="margin:0;">云同步还没设置，去"工人"页设置一次同步密钥后，这里会出现快捷推送/拉取按钮。</div>
+    </div>`;
+  }
+  return `<div class="ticket" style="padding:10px 14px; margin-bottom:14px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
+      <div class="ticket-meta" style="margin:0;">上次同步：${sync.lastSync || '还没有同步过'}</div>
+      <div style="display:flex; gap:8px;">
+        <button class="btn btn-outline btn-sm" id="quickPullBtn">拉取</button>
+        <button class="btn btn-steel btn-sm" id="quickPushBtn">推送</button>
+      </div>
+    </div>
+  </div>`;
 }
 
 /* ---------- helpers ---------- */
@@ -379,32 +397,28 @@ function render(){
 /* ================= 记工 (Daily Log) ================= */
 function renderLog(){
   if(db.workers.length===0){
-    return `<div class="empty">还没有工人资料<br>请先到「工人」页添加工人</div>`;
+    return `${renderSyncBar()}<div class="empty">还没有工人资料<br>请先到「工人」页添加工人，或者如果云端已有数据，点上面"拉取"</div>`;
   }
   const recent = [...db.entries].sort((a,b)=> b.date.localeCompare(a.date) || b.id.localeCompare(a.id)).slice(0,25);
   const options = db.workers.map(w=>`<option value="${w.id}">${w.name}（日薪 ${fmt(w.dailyRate)}）</option>`).join('');
 
   return `
+  ${renderSyncBar()}
   <h2 class="section-title">新增一条记录</h2>
   <div class="ticket">
     <div class="ticket-body">
       <label>工人</label>
       <select id="f_worker">${options}</select>
 
-      <div class="row2">
-        <div>
-          <label>日期</label>
-          <input type="date" id="f_date" value="${todayStr()}">
-        </div>
-        <div>
-          <label>工作量</label>
-          <select id="f_frac">
-            <option value="1">整天</option>
-            <option value="0.5">半天</option>
-            <option value="custom">自定义比例</option>
-          </select>
-        </div>
-      </div>
+      <label>日期</label>
+      <input type="date" id="f_date" value="${todayStr()}">
+
+      <label>工作量</label>
+      <select id="f_frac">
+        <option value="1">整天</option>
+        <option value="0.5">半天</option>
+        <option value="custom">自定义比例</option>
+      </select>
       <input type="number" id="f_frac_custom" step="0.1" min="0" max="2" placeholder="例如 0.75" style="display:none; margin-top:8px;">
 
       <label>干活地址 / 项目</label>
@@ -538,7 +552,7 @@ function renderWorkers(){
 /* ================= 结算 (Settlement) — 自由日期范围 ================= */
 function renderSettle(){
   if(db.workers.length===0){
-    return `<div class="empty">还没有工人资料<br>请先到「工人」页添加工人</div>`;
+    return `${renderSyncBar()}<div class="empty">还没有工人资料<br>请先到「工人」页添加工人，或者如果云端已有数据，点上面"拉取"</div>`;
   }
   if(!window._rangeStart || !window._rangeEnd){
     window._rangeStart = addDays(todayStr(), -6);
@@ -610,22 +624,17 @@ function renderSettle(){
   }).join('');
 
   return `
+  ${renderSyncBar()}
   <h2 class="section-title">选择结算范围（可自由调整）</h2>
   <div class="preset-row">
     <button data-preset="7" class="${window._activePreset==='7'?'active':''}">最近7天</button>
     <button data-preset="14" class="${window._activePreset==='14'?'active':''}">最近14天</button>
     <button data-preset="month" class="${window._activePreset==='month'?'active':''}">本月至今</button>
   </div>
-  <div class="row2">
-    <div>
-      <label>开始日期</label>
-      <input type="date" id="r_start" value="${start}">
-    </div>
-    <div>
-      <label>结束日期</label>
-      <input type="date" id="r_end" value="${end}">
-    </div>
-  </div>
+  <label>开始日期</label>
+  <input type="date" id="r_start" value="${start}">
+  <label>结束日期</label>
+  <input type="date" id="r_end" value="${end}">
 
   <div class="summary-grid" style="margin-top:14px;">
     <div class="summary-box">
@@ -945,6 +954,10 @@ function bindEvents(){
   if(pullBtn) pullBtn.addEventListener('click', pullFromCloud);
   const disconnectSyncBtn = document.getElementById('disconnectSyncBtn');
   if(disconnectSyncBtn) disconnectSyncBtn.addEventListener('click', disconnectSync);
+  const quickPushBtn = document.getElementById('quickPushBtn');
+  if(quickPushBtn) quickPushBtn.addEventListener('click', pushToCloud);
+  const quickPullBtn = document.getElementById('quickPullBtn');
+  if(quickPullBtn) quickPullBtn.addEventListener('click', pullFromCloud);
   const exportBtn = document.getElementById('exportBtn');
   if(exportBtn){
     exportBtn.addEventListener('click', ()=>{
