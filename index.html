@@ -7,6 +7,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <style>
   :root{
     --ink:#2C2A24;
@@ -143,16 +145,6 @@
   dialog::backdrop{background:rgba(20,18,14,.55);}
   .dialog-inner{padding:18px;}
   .dialog-title{font-family:'Oswald',sans-serif; font-size:17px; margin:0 0 12px;}
-
-  @media print{
-    body *{visibility:hidden;}
-    #printArea, #printArea *{visibility:visible;}
-    #printArea{position:absolute; top:0; left:0; width:100%; padding:20px; background:#fff; color:#000;}
-    header, nav.tabbar, main{display:none !important;}
-    #printAreaWrap{display:block !important;}
-  }
-  #printAreaWrap{display:none;}
-
 </style>
 </head>
 <body>
@@ -165,7 +157,7 @@
 
 <main id="main"></main>
 
-<div id="printAreaWrap"><div id="printArea"></div></div>
+<div id="pdfSource" style="position:absolute; top:0; left:-10000px; width:640px; background:#fff; color:#1a1a1a; padding:28px; font-family:'PingFang SC','Microsoft YaHei','IBM Plex Sans',Arial,sans-serif;"></div>
 
 <nav class="tabbar">
   <button data-tab="log" class="active">
@@ -339,8 +331,8 @@ function renderLog(){
   `;
 }
 
-function addExtraRow(name, amount){
-  const container = document.getElementById('extrasContainer');
+function addExtraRow(name, amount, containerId){
+  const container = document.getElementById(containerId || 'extrasContainer');
   if(!container) return;
   const row = document.createElement('div');
   row.className = 'extra-row';
@@ -438,10 +430,13 @@ function renderSettle(){
         ${list.map(e=>{
           const ex = extrasLabel(e);
           return `
-          <div style="padding:4px 0; border-top:1px solid var(--card-line); font-size:13px;">
-            <div style="display:flex; justify-content:space-between;">
+          <div style="padding:6px 0; border-top:1px solid var(--card-line); font-size:13px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
               <span>${dOf(e.date)} ${e.location?'· '+e.location:''}</span>
-              <span class="num">${fmt(entryPay(e))}</span>
+              <span style="display:flex; align-items:center; gap:8px;">
+                <span class="num">${fmt(entryPay(e))}</span>
+                <button data-edit-settle-entry="${e.id}" style="background:none; border:none; color:var(--steel); font-size:12px; text-decoration:underline; cursor:pointer; padding:2px 0 2px 4px;">修改</button>
+              </span>
             </div>
             ${ex? `<div style="color:var(--muted); font-size:12px;">${ex}</div>` : ''}
           </div>`;
@@ -450,7 +445,7 @@ function renderSettle(){
           <button class="btn btn-sm ${allPaid?'btn-outline':''}" data-toggle-paid="${wid}" data-start="${start}" data-end="${end}" style="flex:1;">
             ${allPaid? '标记为未付' : '标记本次为已付'}
           </button>
-          <button class="btn btn-steel btn-sm" data-print="${wid}" data-start="${start}" data-end="${end}" style="flex:1;">打印/导出PDF</button>
+          <button class="btn btn-steel btn-sm" data-print="${wid}" data-start="${start}" data-end="${end}" style="flex:1;">导出工资单 PDF</button>
         </div>
       </div>
     </div>`;
@@ -506,13 +501,14 @@ function renderSettle(){
   `;
 }
 
-/* ---------- print / 导出 PDF ----------
-   用浏览器自带的“打印”功能生成 PDF：不需要联网、不需要外部组件，
-   中文由浏览器自己渲染，手机和电脑通用。
-   手机上点击后选择“存储为 PDF”，电脑上在打印弹窗里选择“另存为 PDF”。 */
-function printPayslip(workerId, start, end){
-  if(window.self !== window.top){
-    showAlert('打印功能在预览窗口里被禁用了。请先下载这个文件，用浏览器直接打开（或部署到你的网站上）再点这个按钮。');
+/* ---------- 导出工资单 PDF ----------
+   用 html2canvas 把带中文的排版渲染成图片，再用 jsPDF 把图片放进 PDF 直接下载，
+   不需要浏览器打印弹窗。注意：捕获用的容器必须是“真实渲染但移到屏幕外”，
+   不能用 overflow:hidden 的 0 尺寸容器裁剪它——那样等于让它完全不可见，
+   html2canvas 会截出一张空白图（这是之前空白 PDF 的真正原因）。 */
+function exportPayslipPDF(workerId, start, end){
+  if(!window.jspdf || !window.html2canvas){
+    showAlert('PDF 组件还没加载完成，请检查网络后重新打开页面再试。');
     return;
   }
   const w = worker(workerId);
@@ -531,30 +527,61 @@ function printPayslip(workerId, start, end){
     </tr>`;
   }).join('');
 
-  document.getElementById('printArea').innerHTML = `
-    <div style="font-family:Arial,'PingFang SC','Microsoft YaHei',sans-serif; max-width:700px; color:#111;">
-      <div style="font-size:20px; font-weight:700; margin-bottom:2px;">A&amp;A Joinery — 工资单</div>
-      <div style="font-size:12px; color:#777; margin-bottom:18px;">Payslip</div>
-      <div style="font-size:14px; margin-bottom:4px;"><b>工人：</b>${w.name}</div>
-      <div style="font-size:14px; margin-bottom:16px;"><b>结算周期：</b>${start} ~ ${end}</div>
-      <table style="width:100%; border-collapse:collapse; font-size:13px;">
-        <thead>
-          <tr style="border-bottom:2px solid #111; text-align:left;">
-            <th style="padding:6px 4px;">日期</th>
-            <th style="padding:6px 4px;">地点/项目</th>
-            <th style="padding:6px 4px; text-align:center;">工作量</th>
-            <th style="padding:6px 4px;">额外项目</th>
-            <th style="padding:6px 4px; text-align:right;">金额</th>
-          </tr>
-        </thead>
-        <tbody>${rows}</tbody>
-      </table>
-      <div style="text-align:right; font-size:17px; font-weight:700; margin-top:16px; padding-top:10px; border-top:2px solid #111;">
-        合计 Total：${fmt(total)}
-      </div>
+  const source = document.getElementById('pdfSource');
+  source.innerHTML = `
+    <div style="font-size:20px; font-weight:700; margin-bottom:2px;">A&amp;A Joinery — 工资单</div>
+    <div style="font-size:12px; color:#777; margin-bottom:18px;">Payslip</div>
+    <div style="font-size:14px; margin-bottom:4px;"><b>工人：</b>${w.name}</div>
+    <div style="font-size:14px; margin-bottom:16px;"><b>结算周期：</b>${start} ~ ${end}</div>
+    <table style="width:100%; border-collapse:collapse; font-size:13px;">
+      <thead>
+        <tr style="border-bottom:2px solid #111; text-align:left;">
+          <th style="padding:6px 4px;">日期</th>
+          <th style="padding:6px 4px;">地点/项目</th>
+          <th style="padding:6px 4px; text-align:center;">工作量</th>
+          <th style="padding:6px 4px;">额外项目</th>
+          <th style="padding:6px 4px; text-align:right;">金额</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div style="text-align:right; font-size:17px; font-weight:700; margin-top:16px; padding-top:10px; border-top:2px solid #111;">
+      合计 Total：${fmt(total)}
     </div>
   `;
-  window.print();
+
+  const run = ()=>{
+    html2canvas(source, {scale:2, backgroundColor:'#ffffff'}).then(canvas=>{
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF('p','pt','a4');
+      const pageW = 595, pageH = 842, margin = 30;
+      const usableW = pageW - margin*2;
+      const usableH = pageH - margin*2;
+      const imgW = usableW;
+      const imgH = canvas.height * (imgW / canvas.width);
+      const imgData = canvas.toDataURL('image/png');
+
+      if(imgH <= usableH){
+        doc.addImage(imgData, 'PNG', margin, margin, imgW, imgH);
+      } else {
+        let heightLeft = imgH;
+        let position = margin;
+        doc.addImage(imgData, 'PNG', margin, position, imgW, imgH);
+        heightLeft -= usableH;
+        while(heightLeft > 0){
+          position = margin - (imgH - heightLeft);
+          doc.addPage();
+          doc.addImage(imgData, 'PNG', margin, position, imgW, imgH);
+          heightLeft -= usableH;
+        }
+      }
+      doc.save(`工资单-${w.name}-${start}~${end}.pdf`);
+    }).catch(()=>{
+      showAlert('生成 PDF 失败，请检查网络连接后重试。');
+    });
+  };
+  if(document.fonts && document.fonts.ready){ document.fonts.ready.then(run); }
+  else { setTimeout(run, 200); }
 }
 
 /* ---------- custom confirm/alert (native confirm()/alert() can be blocked
@@ -603,6 +630,85 @@ function openEditWorker(id){
   document.getElementById('ew_cancel').onclick = ()=>dlg.close();
   document.getElementById('ew_save').onclick = ()=>{
     w.dailyRate = parseFloat(document.getElementById('ew_rate').value)||w.dailyRate;
+    saveDB(); dlg.close(); render();
+  };
+}
+
+/* 在「结算」页直接修改/删除某一条记工记录。
+   这条记录本来就是记工页和结算页共用同一份数据（db.entries），
+   所以这里改完保存后，记工页的“最近记录”会自动同步显示最新结果。
+   只改这一条记录本身的日薪快照，不会影响工人信息里设置的当前日薪。 */
+function openEditEntry(entryId){
+  const e = db.entries.find(x=>x.id===entryId);
+  if(!e) return;
+  const w = worker(e.workerId);
+  const dlg = document.getElementById('dlg');
+  document.getElementById('dlgBody').innerHTML = `
+    <div class="dialog-title">修改这条记录（${w?w.name:'未知工人'}）</div>
+    <label>日期</label>
+    <input type="date" id="ee_date" value="${e.date}">
+    <label>干活地址 / 项目</label>
+    <input type="text" id="ee_loc" value="${e.location||''}">
+    <label>工作量</label>
+    <select id="ee_frac">
+      <option value="1" ${e.dayFraction===1?'selected':''}>整天</option>
+      <option value="0.5" ${e.dayFraction===0.5?'selected':''}>半天</option>
+      <option value="custom" ${(e.dayFraction!==1&&e.dayFraction!==0.5)?'selected':''}>自定义比例</option>
+    </select>
+    <input type="number" id="ee_frac_custom" step="0.1" min="0" max="2"
+      value="${(e.dayFraction!==1&&e.dayFraction!==0.5)?e.dayFraction:''}"
+      style="margin-top:8px; display:${(e.dayFraction!==1&&e.dayFraction!==0.5)?'block':'none'};">
+    <label>该条使用的日薪 ($)</label>
+    <input type="number" id="ee_rate" value="${e.dailyRate}">
+    <label>额外项目</label>
+    <div id="ee_extras"></div>
+    <div class="btn-row">
+      <button class="btn btn-outline btn-sm" id="ee_add_extra" style="width:auto;">+ 添加一项</button>
+    </div>
+    <label>备注（可选）</label>
+    <input type="text" id="ee_note" value="${e.note||''}">
+    <div class="btn-row">
+      <button class="btn btn-outline" id="ee_delete" style="background:none; border-color:var(--rust); color:var(--rust);">删除记录</button>
+      <button class="btn" id="ee_save">保存修改</button>
+    </div>
+  `;
+  dlg.showModal();
+
+  const extras = Array.isArray(e.extras) ? e.extras : [];
+  if(extras.length){
+    extras.forEach(x=>addExtraRow(x.name, x.amount, 'ee_extras'));
+  } else {
+    addExtraRow('', undefined, 'ee_extras');
+  }
+
+  document.getElementById('ee_frac').addEventListener('change', function(){
+    document.getElementById('ee_frac_custom').style.display = this.value==='custom' ? 'block':'none';
+  });
+  document.getElementById('ee_add_extra').addEventListener('click', ()=> addExtraRow('', undefined, 'ee_extras'));
+
+  document.getElementById('ee_delete').onclick = ()=>{
+    showConfirm('删除这条记工记录？此操作会同步从记工页移除。', ()=>{
+      db.entries = db.entries.filter(x=>x.id!==entryId);
+      saveDB(); dlg.close(); render();
+    });
+  };
+  document.getElementById('ee_save').onclick = ()=>{
+    let frac = document.getElementById('ee_frac').value;
+    frac = frac==='custom' ? (parseFloat(document.getElementById('ee_frac_custom').value)||0) : parseFloat(frac);
+    const newExtras = [];
+    document.querySelectorAll('#ee_extras .extra-row').forEach(row=>{
+      const name = row.querySelector('.extra-name').value.trim();
+      const amount = parseFloat(row.querySelector('.extra-amount').value);
+      if(name || (amount && amount!==0)){
+        newExtras.push({ name: name || '额外项目', amount: amount||0 });
+      }
+    });
+    e.date = document.getElementById('ee_date').value || e.date;
+    e.location = document.getElementById('ee_loc').value.trim();
+    e.dayFraction = frac;
+    e.dailyRate = parseFloat(document.getElementById('ee_rate').value) || e.dailyRate;
+    e.extras = newExtras;
+    e.note = document.getElementById('ee_note').value.trim();
     saveDB(); dlg.close(); render();
   };
 }
@@ -748,9 +854,12 @@ function bindEvents(){
       saveDB(); render();
     });
   });
+  document.querySelectorAll('[data-edit-settle-entry]').forEach(btn=>{
+    btn.addEventListener('click', ()=> openEditEntry(btn.dataset.editSettleEntry));
+  });
   document.querySelectorAll('[data-print]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
-      printPayslip(btn.dataset.print, btn.dataset.start, btn.dataset.end);
+      exportPayslipPDF(btn.dataset.print, btn.dataset.start, btn.dataset.end);
     });
   });
 }
