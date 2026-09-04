@@ -97,8 +97,15 @@
     width:100%; max-width:100%; min-width:0; box-sizing:border-box;
     padding:10px 11px; border:1px solid var(--card-line); border-radius:3px;
     font-size:15px; background:var(--card); color:var(--ink); font-family:'IBM Plex Sans',sans-serif;
+    -webkit-appearance:none; appearance:none;
   }
   input:focus, select:focus, textarea:focus{outline:2px solid var(--timber); outline-offset:1px;}
+  input[type="date"]{ font-size:14px; }
+  select{
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%238A8271'><path d='M5.5 7.5l4.5 5 4.5-5z'/></svg>");
+    background-repeat:no-repeat; background-position:right 11px center; background-size:16px;
+    padding-right:34px;
+  }
   .row2{display:flex; gap:10px; flex-wrap:wrap;}
   .row2 > div{flex:1 1 140px; min-width:0;}
 
