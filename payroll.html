@@ -1,0 +1,1164 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>A&A 工资本</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<style>
+  :root{
+    --ink:#2C2A24;
+    --paper:#EFE7D8;
+    --card:#FBF8F1;
+    --card-line:#DED2B8;
+    --timber:#B6672E;
+    --timber-dark:#8F4F22;
+    --steel:#46595F;
+    --olive:#5B6B45;
+    --rust:#A8432B;
+    --muted:#8A8271;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0; max-width:100%; overflow-x:hidden;}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:'IBM Plex Sans', sans-serif;
+    -webkit-font-smoothing:antialiased;
+    padding-bottom:84px;
+    min-height:100vh;
+  }
+  h1,h2,h3,.label-font{font-family:'Oswald',sans-serif; letter-spacing:.02em;}
+  .num{font-family:'IBM Plex Mono', monospace;}
+
+  header{
+    background:var(--ink);
+    color:var(--paper);
+    padding:18px 18px 14px;
+    position:sticky; top:0; z-index:10;
+  }
+  header h1{ margin:0; font-size:22px; font-weight:600; color:#F3E9D2; }
+  header .sub{font-size:12.5px; color:#B8AF98; margin-top:2px;}
+  .ticks{ display:flex; align-items:flex-end; gap:3px; height:10px; margin-top:10px; overflow:hidden; }
+  .ticks span{width:1px; background:#6b6455; display:block;}
+  .ticks span.major{background:#a89a78; width:1.5px;}
+
+  main{padding:16px; max-width:640px; margin:0 auto;}
+
+  nav.tabbar{
+    position:fixed; bottom:0; left:0; right:0;
+    background:var(--ink);
+    display:flex;
+    z-index:20;
+    box-shadow:0 -2px 10px rgba(0,0,0,.25);
+  }
+  nav.tabbar button{
+    flex:1; background:none; border:none; color:#9C9484;
+    padding:10px 4px 12px; font-family:'Oswald',sans-serif; font-size:12.5px;
+    display:flex; flex-direction:column; align-items:center; gap:4px;
+    cursor:pointer;
+  }
+  nav.tabbar button.active{color:#F3E9D2;}
+  nav.tabbar button.active svg{stroke:var(--timber);}
+  nav.tabbar svg{width:20px; height:20px; stroke:#9C9484; fill:none; stroke-width:1.7;}
+
+  .ticket{
+    background:var(--card);
+    border:1px solid var(--card-line);
+    border-radius:3px;
+    padding:14px 14px 12px;
+    margin-bottom:12px;
+    position:relative;
+  }
+  .ticket::before{
+    content:"";
+    position:absolute; top:0; left:14px; right:14px; height:0;
+    border-top:2px dashed #D9CBA8;
+  }
+  .ticket-body{padding-top:8px;}
+  .ticket-row{display:flex; justify-content:space-between; align-items:baseline; gap:10px;}
+  .ticket-title{font-weight:600; font-size:15.5px;}
+  .ticket-meta{font-size:12.5px; color:var(--muted); margin-top:2px;}
+  .ticket-amt{font-family:'IBM Plex Mono',monospace; font-weight:600; font-size:16px;}
+
+  .status-pill{
+    display:inline-block; font-size:11.5px; padding:2px 8px; border-radius:20px;
+    font-family:'Oswald',sans-serif; letter-spacing:.03em;
+  }
+  .status-paid{background:#E4E9DC; color:var(--olive);}
+  .status-unpaid{background:#F3DED4; color:var(--rust);}
+
+  .pm-tag{
+    display:inline-block; font-size:10.5px; padding:1px 7px; border-radius:20px;
+    font-family:'Oswald',sans-serif; letter-spacing:.02em; vertical-align:middle;
+  }
+  .pm-cash{background:#E4E9DC; color:var(--olive);}
+  .pm-transfer{background:#DDE6E8; color:var(--steel);}
+
+  label{display:block; font-size:12.5px; color:var(--muted); margin:12px 0 5px; font-family:'Oswald',sans-serif; letter-spacing:.02em;}
+  input, select, textarea{
+    width:100%; max-width:100%; min-width:0; box-sizing:border-box;
+    padding:10px 11px; border:1px solid var(--card-line); border-radius:3px;
+    font-size:15px; background:var(--card); color:var(--ink); font-family:'IBM Plex Sans',sans-serif;
+    -webkit-appearance:none; appearance:none;
+  }
+  input:focus, select:focus, textarea:focus{outline:2px solid var(--timber); outline-offset:1px;}
+  input[type="date"]{ font-size:14px; }
+  select{
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%238A8271'><path d='M5.5 7.5l4.5 5 4.5-5z'/></svg>");
+    background-repeat:no-repeat; background-position:right 11px center; background-size:16px;
+    padding-right:34px;
+  }
+  .row2{display:flex; gap:10px; flex-wrap:wrap;}
+  .row2 > div{flex:1 1 140px; min-width:0;}
+
+  button.btn{
+    font-family:'Oswald',sans-serif; letter-spacing:.02em;
+    background:var(--timber); color:#fff; border:none; border-radius:3px;
+    padding:12px 16px; font-size:15px; cursor:pointer; width:100%;
+    margin-top:16px;
+  }
+  button.btn:active{background:var(--timber-dark);}
+  button.btn-outline{ background:none; border:1px solid var(--ink); color:var(--ink); }
+  button.btn-steel{background:var(--steel);}
+  button.btn-sm{ width:auto; padding:6px 12px; font-size:12.5px; margin-top:0; border-radius:20px; }
+  .btn-row{display:flex; gap:8px; margin-top:10px;}
+  .btn-row button{flex:1;}
+
+  h2.section-title{
+    font-size:15px; text-transform:uppercase; letter-spacing:.08em;
+    color:var(--steel); margin:22px 0 10px; font-weight:500;
+  }
+  h2.section-title:first-child{margin-top:0;}
+
+  .empty{ text-align:center; padding:40px 20px; color:var(--muted); font-size:14px; }
+
+  .summary-grid{display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:14px;}
+  .summary-box{ background:var(--ink); color:var(--paper); border-radius:4px; padding:12px 14px; }
+  .summary-box .num{font-size:20px; font-weight:600; color:#F3E9D2;}
+  .summary-box .cap{font-size:11.5px; color:#A79E8B; font-family:'Oswald',sans-serif; letter-spacing:.03em;}
+
+  .extra-row{ display:flex; gap:8px; margin-top:8px; align-items:center; }
+  .extra-row input:first-child{ flex:1.4; min-width:0; }
+  .extra-row input:nth-child(2){ flex:1; min-width:0; }
+  .extra-row button{
+    background:none; border:1px solid var(--card-line); color:var(--rust);
+    border-radius:3px; padding:9px 10px; font-size:13px; cursor:pointer; flex:0 0 auto;
+  }
+  .preset-row{ display:flex; gap:8px; margin:10px 0 4px; flex-wrap:wrap; }
+  .preset-row button{
+    background:var(--card); border:1px solid var(--card-line); color:var(--ink);
+    font-family:'Oswald',sans-serif; font-size:12.5px; padding:6px 12px; border-radius:20px; cursor:pointer;
+  }
+  .preset-row button.active{ background:var(--ink); color:#F3E9D2; border-color:var(--ink); }
+
+  dialog{ border:none; border-radius:6px; padding:0; width:92%; max-width:420px; background:var(--paper); }
+  dialog::backdrop{background:rgba(20,18,14,.55);}
+  .dialog-inner{padding:18px;}
+  .dialog-title{font-family:'Oswald',sans-serif; font-size:17px; margin:0 0 12px;}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>A&amp;A 工资本</h1>
+  <div class="sub">工人日结工资记录 · Job Wages Ledger</div>
+  <div class="ticks" id="ticks"></div>
+</header>
+
+<main id="main"></main>
+
+<div id="pdfSource" style="position:absolute; top:0; left:-10000px; width:640px; background:#fff; color:#1a1a1a; padding:28px; font-family:'PingFang SC','Microsoft YaHei','IBM Plex Sans',Arial,sans-serif;"></div>
+
+<nav class="tabbar">
+  <button data-tab="log" class="active">
+    <svg viewBox="0 0 24 24"><path d="M4 4h16v16H4z"/><path d="M8 9h8M8 13h8M8 17h5"/></svg>
+    记工
+  </button>
+  <button data-tab="workers">
+    <svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3 20c0-3.3 2.7-5 6-5s6 1.7 6 5"/><circle cx="17" cy="9" r="2.3"/><path d="M15.5 14c2.6.3 4.5 1.7 4.5 4.3"/></svg>
+    工人
+  </button>
+  <button data-tab="settle">
+    <svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="1"/><path d="M8 8h8M8 12h8M8 16h4"/></svg>
+    结算
+  </button>
+</nav>
+
+<dialog id="dlg"><div class="dialog-inner" id="dlgBody"></div></dialog>
+<datalist id="locHistoryList"></datalist>
+
+<script>
+/* ---------- storage ---------- */
+const DB_KEY = 'aa_payroll_v1';
+function loadDB(){
+  try{
+    const raw = localStorage.getItem(DB_KEY);
+    if(raw) return JSON.parse(raw);
+  }catch(e){}
+  return { workers:[], entries:[] };
+}
+function saveDB(){ localStorage.setItem(DB_KEY, JSON.stringify(db)); }
+let db = loadDB();
+if(!db.workers) db.workers = [];
+if(!db.entries) db.entries = [];
+if(!db.locationHistory) db.locationHistory = [];
+
+/* 最近用过的干活地址（跟记工记录本身分开存，方便单独清空，不影响历史记录） */
+function recordLocationHistory(loc){
+  loc = (loc||'').trim();
+  if(!loc) return;
+  db.locationHistory = db.locationHistory.filter(x=>x.value!==loc);
+  db.locationHistory.unshift({value:loc, t:Date.now()});
+  if(db.locationHistory.length>20) db.locationHistory = db.locationHistory.slice(0,20);
+  saveDB();
+}
+function locationHistoryOptions(){
+  return db.locationHistory.map(x=>`<option value="${x.value.replace(/"/g,'&quot;')}"></option>`).join('');
+}
+function refreshLocationDatalist(){
+  const dl = document.getElementById('locHistoryList');
+  if(dl) dl.innerHTML = locationHistoryOptions();
+}
+function clearLocationHistory(){
+  showConfirm('清空最近地址记录？（不会影响任何已保存的记工记录，只是清掉输入建议列表）', ()=>{
+    db.locationHistory = [];
+    saveDB(); refreshLocationDatalist(); render();
+  });
+}
+
+/* ---------- GitHub Gist 云同步 ----------
+   数据本身一直存在本机 localStorage 里（这是唯一的数据来源）。
+   云同步只是"手动推送/拉取"的搬运工具：
+   - 推送：把本机数据整个上传（覆盖）到一个只有你的密钥能访问的私密 Gist
+   - 拉取：把 Gist 里的数据整个下载（覆盖）到本机
+   不做自动、静默的双向合并，避免因为逻辑复杂而在关键数据上出错。 */
+const SYNC_KEY = 'aa_payroll_sync_v1';
+function loadSync(){
+  try{
+    const raw = localStorage.getItem(SYNC_KEY);
+    if(raw) return JSON.parse(raw);
+  }catch(e){}
+  return { token:'', gistId:'', lastSync:'' };
+}
+function saveSync(){ localStorage.setItem(SYNC_KEY, JSON.stringify(sync)); }
+let sync = loadSync();
+
+const GIST_FILENAME = 'aa-payroll-data.json';
+
+/* 通过密钥自动找到这个账号下已有的那份工资数据（按文件名匹配），
+   这样即使这台设备本地没记住"云端文件编号"，也能自动对上同一份数据，
+   不需要在手机和电脑之间手动传编号。 */
+async function findExistingGistId(){
+  try{
+    const resp = await fetch('https://api.github.com/gists?per_page=100', {
+      headers:{ 'Authorization':'token '+sync.token }
+    });
+    if(!resp.ok) return null;
+    const list = await resp.json();
+    const match = list.find(g => g.files && g.files[GIST_FILENAME]);
+    return match ? match.id : null;
+  }catch(e){ return null; }
+}
+
+async function pushToCloud(){
+  if(!sync.token){ showAlert('请先设置 GitHub 同步密钥。'); return; }
+  if(!sync.gistId){
+    const existing = await findExistingGistId();
+    if(existing){ sync.gistId = existing; saveSync(); }
+  }
+  const body = {
+    description: 'A&A Payroll data (private, do not delete)',
+    public: false,
+    files: { [GIST_FILENAME]: { content: JSON.stringify(db, null, 2) } }
+  };
+  try{
+    let resp;
+    if(sync.gistId){
+      resp = await fetch(`https://api.github.com/gists/${sync.gistId}`, {
+        method:'PATCH',
+        headers:{ 'Authorization':'token '+sync.token, 'Content-Type':'application/json' },
+        body: JSON.stringify(body)
+      });
+    } else {
+      resp = await fetch('https://api.github.com/gists', {
+        method:'POST',
+        headers:{ 'Authorization':'token '+sync.token, 'Content-Type':'application/json' },
+        body: JSON.stringify(body)
+      });
+    }
+    if(!resp.ok){
+      if(resp.status===401) showAlert('推送失败：密钥不正确或已失效，请重新设置密钥。');
+      else showAlert('推送失败（错误代码 '+resp.status+'），请检查网络后重试。');
+      return;
+    }
+    const data = await resp.json();
+    sync.gistId = data.id;
+    sync.lastSync = new Date().toLocaleString('zh-CN');
+    saveSync();
+    showAlert('已成功推送到云端。');
+    render();
+  }catch(e){
+    showAlert('推送失败，请检查网络连接后重试。（详细信息：'+e.message+'）');
+  }
+}
+
+async function pullFromCloud(){
+  if(!sync.token){ showAlert('请先设置 GitHub 同步密钥。'); return; }
+  if(!sync.gistId){
+    const existing = await findExistingGistId();
+    if(existing){ sync.gistId = existing; saveSync(); }
+  }
+  if(!sync.gistId){ showAlert('还没有云端数据，请先在另一台设备上点一次"推送到云端"。'); return; }
+  showConfirm('从云端拉取数据会覆盖本机当前的所有记录，确定继续？', async ()=>{
+    try{
+      const resp = await fetch(`https://api.github.com/gists/${sync.gistId}`, {
+        headers:{ 'Authorization':'token '+sync.token }
+      });
+      if(!resp.ok){
+        if(resp.status===401) showAlert('拉取失败：密钥不正确或已失效，请重新设置密钥。');
+        else if(resp.status===404) showAlert('拉取失败：找不到云端数据，可能已被删除。');
+        else showAlert('拉取失败（错误代码 '+resp.status+'），请检查网络后重试。');
+        return;
+      }
+      const data = await resp.json();
+      const file = data.files && data.files[GIST_FILENAME];
+      if(!file){ showAlert('云端数据格式不正确。'); return; }
+      const parsed = JSON.parse(file.content);
+      db = parsed;
+      if(!db.workers) db.workers = [];
+      if(!db.entries) db.entries = [];
+      if(!db.locationHistory) db.locationHistory = [];
+      saveDB();
+      sync.lastSync = new Date().toLocaleString('zh-CN');
+      saveSync();
+      showAlert('已从云端拉取最新数据。');
+      render();
+    }catch(e){
+      showAlert('拉取失败，请检查网络连接后重试。（详细信息：'+e.message+'）');
+    }
+  });
+}
+
+/* 标记为已付时，先问一下这次是现金还是转账，方便以后报税查账 */
+function markRangePaid(wid, start, end, method){
+  const list = db.entries.filter(e=>e.workerId===wid && e.date>=start && e.date<=end);
+  list.forEach(e=>{ e.paid = true; if(method) e.paymentMethod = method; });
+  saveDB(); render();
+}
+function openMarkPaidDialog(wid, start, end){
+  const dlg = document.getElementById('dlg');
+  document.getElementById('dlgBody').innerHTML = `
+    <div class="dialog-title">这次是怎么付的？</div>
+    <div class="btn-row">
+      <button class="btn" id="pay_cash">现金</button>
+      <button class="btn btn-steel" id="pay_transfer">转账</button>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-outline" id="pay_skip" style="width:auto;">不记录，直接标记已付</button>
+    </div>
+  `;
+  dlg.showModal();
+  document.getElementById('pay_cash').onclick = ()=>{ dlg.close(); markRangePaid(wid,start,end,'cash'); };
+  document.getElementById('pay_transfer').onclick = ()=>{ dlg.close(); markRangePaid(wid,start,end,'transfer'); };
+  document.getElementById('pay_skip').onclick = ()=>{ dlg.close(); markRangePaid(wid,start,end,null); };
+}
+
+function disconnectSync(){
+  showConfirm('解除云同步设置？（不会删除云端已保存的数据，也不会删除本机数据，只是清除这台设备上保存的密钥）', ()=>{
+    sync = { token:'', gistId: sync.gistId, lastSync:'' };
+    saveSync(); render();
+  });
+}
+
+/* 记工页、结算页顶部的快捷同步条，免得每次都要跑回工人页操作 */
+function renderSyncBar(){
+  if(!sync.token){
+    return `<div class="ticket" style="padding:10px 14px; margin-bottom:14px;">
+      <div class="ticket-meta" style="margin:0;">云同步还没设置，去"工人"页设置一次同步密钥后，这里会出现快捷推送/拉取按钮。</div>
+    </div>`;
+  }
+  return `<div class="ticket" style="padding:10px 14px; margin-bottom:14px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
+      <div class="ticket-meta" style="margin:0;">上次同步：${sync.lastSync || '还没有同步过'}</div>
+      <div style="display:flex; gap:8px;">
+        <button class="btn btn-outline btn-sm" id="quickPullBtn">拉取</button>
+        <button class="btn btn-steel btn-sm" id="quickPushBtn">推送</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ---------- helpers ---------- */
+function todayStr(){ return new Date().toISOString().slice(0,10); }
+function addDays(dateStr, n){
+  const d = new Date(dateStr+'T00:00:00');
+  d.setDate(d.getDate()+n);
+  return d.toISOString().slice(0,10);
+}
+function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
+function fmt(n){ return '$'+(Math.round((n+Number.EPSILON)*100)/100).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function worker(id){ return db.workers.find(w=>w.id===id); }
+function dOf(s){ return s.slice(5).replace('-','/'); }
+
+/* entryPay: 正常工资 + 所有自定义项目金额之和（向后兼容旧的 otHours/otRate 记录） */
+function entryPay(e){
+  const reg = (e.dayFraction||0) * (e.dailyRate||0);
+  let extrasTotal = 0;
+  if(Array.isArray(e.extras)){
+    extrasTotal = e.extras.reduce((s,x)=> s + (parseFloat(x.amount)||0), 0);
+  } else if(e.otHours && e.otRate){
+    extrasTotal = e.otHours * e.otRate; // 兼容旧数据
+  }
+  return reg + extrasTotal;
+}
+function extrasLabel(e){
+  if(Array.isArray(e.extras) && e.extras.length){
+    return e.extras.map(x=> (x.name||'额外项目') + ' ' + fmt(parseFloat(x.amount)||0)).join(' · ');
+  }
+  return '';
+}
+
+/* ---------- render ticks ---------- */
+(function drawTicks(){
+  const el = document.getElementById('ticks');
+  for(let i=0;i<60;i++){
+    const s = document.createElement('span');
+    const major = i%5===0;
+    s.className = major?'major':'';
+    s.style.height = major? '10px':'6px';
+    el.appendChild(s);
+  }
+})();
+
+/* ---------- tab handling ---------- */
+let activeTab = 'log';
+document.querySelectorAll('nav.tabbar button').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('nav.tabbar button').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    activeTab = btn.dataset.tab;
+    render();
+  });
+});
+
+function render(){
+  const main = document.getElementById('main');
+  if(activeTab==='log') main.innerHTML = renderLog();
+  else if(activeTab==='workers') main.innerHTML = renderWorkers();
+  else if(activeTab==='settle') main.innerHTML = renderSettle();
+  refreshLocationDatalist();
+  bindEvents();
+  if(activeTab==='log'){
+    // start with one empty extra row
+    addExtraRow();
+  }
+}
+
+/* ================= 记工 (Daily Log) ================= */
+function renderLog(){
+  if(db.workers.length===0){
+    return `${renderSyncBar()}<div class="empty">还没有工人资料<br>请先到「工人」页添加工人，或者如果云端已有数据，点上面"拉取"</div>`;
+  }
+  const recent = [...db.entries].sort((a,b)=> b.date.localeCompare(a.date) || b.id.localeCompare(a.id)).slice(0,25);
+  const options = db.workers.map(w=>`<option value="${w.id}">${w.name}（日薪 ${fmt(w.dailyRate)}）</option>`).join('');
+
+  return `
+  ${renderSyncBar()}
+  <h2 class="section-title">新增一条记录</h2>
+  <div class="ticket">
+    <div class="ticket-body">
+      <label>工人</label>
+      <select id="f_worker">${options}</select>
+
+      <label>日期</label>
+      <input type="date" id="f_date" value="${todayStr()}">
+
+      <label>工作量</label>
+      <select id="f_frac">
+        <option value="1">整天</option>
+        <option value="0.5">半天</option>
+        <option value="custom">自定义比例</option>
+      </select>
+      <input type="number" id="f_frac_custom" step="0.1" min="0" max="2" placeholder="例如 0.75" style="display:none; margin-top:8px;">
+
+      <label>干活地址 / 项目</label>
+      <input type="text" id="f_loc" placeholder="例如：Chatswood 厨房安装" list="locHistoryList">
+
+      <label>备注（可选，比如是给哪个厂家/老板干的活）</label>
+      <input type="text" id="f_note" placeholder="例如：XX厂家的活">
+
+      <label>额外项目（加班费、材料费等，可自己命名和填金额）</label>
+      <div id="extrasContainer"></div>
+      <div class="btn-row">
+        <button class="btn btn-outline btn-sm" id="addExtraBtn" style="width:auto;">+ 添加一项</button>
+      </div>
+
+      <button class="btn" id="addEntryBtn">保存记录</button>
+    </div>
+  </div>
+
+  <h2 class="section-title">最近记录</h2>
+  ${recent.length===0 ? '<div class="empty">暂无记工记录</div>' : recent.map(e=>{
+    const w = worker(e.workerId);
+    if(!w) return '';
+    const ex = extrasLabel(e);
+    return `
+    <div class="ticket">
+      <div class="ticket-body">
+        <div class="ticket-row">
+          <div>
+            <div class="ticket-title">${w.name} · ${dOf(e.date)}</div>
+            <div class="ticket-meta">${e.location? e.location+' · ':''}${e.dayFraction===1?'整天':e.dayFraction===0.5?'半天':(e.dayFraction+'天')}</div>
+            ${ex? `<div class="ticket-meta">${ex}</div>` : ''}
+          </div>
+          <div style="text-align:right;">
+            <div class="ticket-amt">${fmt(entryPay(e))}</div>
+            <span class="status-pill ${e.paid?'status-paid':'status-unpaid'}">${e.paid?'已付':'未付'}</span>
+          </div>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-outline btn-sm" data-del-entry="${e.id}">删除</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('')}
+  `;
+}
+
+function addExtraRow(name, amount, containerId){
+  const container = document.getElementById(containerId || 'extrasContainer');
+  if(!container) return;
+  const row = document.createElement('div');
+  row.className = 'extra-row';
+  row.innerHTML = `
+    <input type="text" placeholder="项目名称，例如：加班" class="extra-name" value="${name||''}">
+    <input type="number" placeholder="金额" step="1" class="extra-amount" value="${amount!==undefined?amount:''}">
+    <button type="button" class="extra-remove">删除</button>
+  `;
+  row.querySelector('.extra-remove').addEventListener('click', ()=> row.remove());
+  container.appendChild(row);
+}
+
+/* ================= 工人 (Workers) ================= */
+function renderWorkers(){
+  return `
+  <h2 class="section-title">添加工人</h2>
+  <div class="ticket">
+    <div class="ticket-body">
+      <label>姓名</label>
+      <input type="text" id="w_name" placeholder="工人姓名">
+      <label>日薪 ($)</label>
+      <input type="number" id="w_rate" step="1" min="0" placeholder="300">
+      <button class="btn" id="addWorkerBtn">添加</button>
+    </div>
+  </div>
+
+  <h2 class="section-title">工人列表 (${db.workers.length})</h2>
+  ${db.workers.length===0? '<div class="empty">还没有添加工人</div>' : db.workers.map(w=>`
+    <div class="ticket">
+      <div class="ticket-body">
+        <div class="ticket-row">
+          <div>
+            <div class="ticket-title">${w.name}</div>
+            <div class="ticket-meta">日薪 <span class="num">${fmt(w.dailyRate)}</span></div>
+          </div>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-outline btn-sm" data-edit-worker="${w.id}">修改日薪</button>
+          <button class="btn btn-outline btn-sm" data-del-worker="${w.id}">删除</button>
+        </div>
+      </div>
+    </div>
+  `).join('')}
+
+  <h2 class="section-title">云同步（手机 / 电脑通用）</h2>
+  <div class="ticket">
+    <div class="ticket-body">
+      ${!sync.token ? `
+        <div class="ticket-meta" style="margin-bottom:10px;">
+          用你的 GitHub 账号设置一个只有你自己能访问的私密同步密钥，之后在任意设备上"推送"或"拉取"，就能让数据在手机和电脑之间搬运。别人访问你的网站看不到你的数据。
+        </div>
+        <label>GitHub 同步密钥（Personal Access Token）</label>
+        <input type="password" id="sync_token" placeholder="粘贴你的密钥">
+        <button class="btn" id="saveSyncBtn">保存密钥</button>
+      ` : `
+        <div class="ticket-meta" style="margin-bottom:6px;">同步密钥：已设置 ✓</div>
+        <div class="ticket-meta" style="margin-bottom:14px;">上次同步：${sync.lastSync || '还没有同步过'}</div>
+        <div class="btn-row">
+          <button class="btn btn-sm" id="pullBtn" style="flex:1;">拉取云端数据（覆盖本机）</button>
+          <button class="btn btn-steel btn-sm" id="pushBtn" style="flex:1;">推送到云端（覆盖云端）</button>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-outline btn-sm" id="disconnectSyncBtn" style="width:auto;">解除同步（清除此设备上的密钥）</button>
+        </div>
+      `}
+    </div>
+  </div>
+
+  <h2 class="section-title">记工小工具</h2>
+  <div class="ticket">
+    <div class="ticket-body">
+      <div class="ticket-meta" style="margin-bottom:10px;">记工页"干活地址"输入框会记住最近用过的地址，方便同一天多个工人同一地址时快速选择。这里可以手动清空这份建议列表（不会影响已保存的记工记录）。</div>
+      <button class="btn btn-outline btn-sm" id="clearLocHistoryBtn" style="width:auto;">清空最近地址记录</button>
+    </div>
+  </div>
+
+  <h2 class="section-title">数据备份</h2>
+  <div class="ticket">
+    <div class="ticket-body">
+      <div class="ticket-meta" style="margin-bottom:10px;">数据保存在本机浏览器中。建议定期导出备份，换手机或清除浏览器数据前请先导出。</div>
+      <div class="btn-row">
+        <button class="btn btn-outline btn-sm" id="exportBtn" style="width:auto;">导出备份 (JSON)</button>
+        <button class="btn btn-outline btn-sm" id="importBtn" style="width:auto;">导入备份</button>
+      </div>
+      <input type="file" id="importFile" accept="application/json" style="display:none;">
+    </div>
+  </div>
+  `;
+}
+
+/* ================= 结算 (Settlement) — 自由日期范围 ================= */
+function renderSettle(){
+  if(db.workers.length===0){
+    return `${renderSyncBar()}<div class="empty">还没有工人资料<br>请先到「工人」页添加工人，或者如果云端已有数据，点上面"拉取"</div>`;
+  }
+  if(!window._rangeStart || !window._rangeEnd){
+    window._rangeStart = addDays(todayStr(), -6);
+    window._rangeEnd = todayStr();
+    window._activePreset = '7';
+  }
+  const start = window._rangeStart, end = window._rangeEnd;
+
+  const entriesInRange = db.entries.filter(e=> e.date>=start && e.date<=end);
+  const byWorker = {};
+  entriesInRange.forEach(e=>{
+    byWorker[e.workerId] = byWorker[e.workerId] || [];
+    byWorker[e.workerId].push(e);
+  });
+
+  const totalAll = entriesInRange.reduce((s,e)=>s+entryPay(e),0);
+  const totalUnpaid = entriesInRange.filter(e=>!e.paid).reduce((s,e)=>s+entryPay(e),0);
+
+  const workerBlocks = Object.keys(byWorker).map(wid=>{
+    const w = worker(wid);
+    if(!w) return '';
+    const list = byWorker[wid].sort((a,b)=>a.date.localeCompare(b.date));
+    const subtotal = list.reduce((s,e)=>s+entryPay(e),0);
+    const allPaid = list.every(e=>e.paid);
+    return `
+    <div class="ticket">
+      <div class="ticket-body">
+        <div class="ticket-row">
+          <div class="ticket-title">${w.name}</div>
+          <div class="ticket-amt">${fmt(subtotal)}</div>
+        </div>
+        <div class="ticket-meta" style="margin-bottom:8px;">${list.length} 条记录 · ${dOf(start)} ~ ${dOf(end)}</div>
+        ${list.map(e=>{
+          const ex = extrasLabel(e);
+          const pmTag = e.paid && e.paymentMethod ? `<span class="pm-tag pm-${e.paymentMethod}">${e.paymentMethod==='cash'?'现金':'转账'}</span>` : '';
+          return `
+          <div style="padding:6px 0; border-top:1px solid var(--card-line); font-size:13px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+              <span>${dOf(e.date)} ${e.location?'· '+e.location:''} ${pmTag}</span>
+              <span style="display:flex; align-items:center; gap:8px;">
+                <span class="num">${fmt(entryPay(e))}</span>
+                <button data-edit-settle-entry="${e.id}" style="background:none; border:none; color:var(--steel); font-size:12px; text-decoration:underline; cursor:pointer; padding:2px 0 2px 4px;">修改</button>
+              </span>
+            </div>
+            ${ex? `<div style="color:var(--muted); font-size:12px;">${ex}</div>` : ''}
+          </div>`;
+        }).join('')}
+        <div class="btn-row">
+          <button class="btn btn-sm ${allPaid?'btn-outline':''}" data-toggle-paid="${wid}" data-start="${start}" data-end="${end}" style="flex:1;">
+            ${allPaid? '标记为未付' : '标记本次为已付'}
+          </button>
+          <button class="btn btn-steel btn-sm" data-print="${wid}" data-start="${start}" data-end="${end}" style="flex:1;">导出工资单 PDF</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+
+  const monthMap = {};
+  let cashTotal = 0, transferTotal = 0, unlabeledPaidTotal = 0;
+  db.entries.forEach(e=>{
+    const wid=e.workerId;
+    monthMap[wid] = monthMap[wid]||{paid:0, unpaid:0};
+    if(e.paid){
+      monthMap[wid].paid += entryPay(e);
+      if(e.paymentMethod==='cash') cashTotal += entryPay(e);
+      else if(e.paymentMethod==='transfer') transferTotal += entryPay(e);
+      else unlabeledPaidTotal += entryPay(e);
+    } else {
+      monthMap[wid].unpaid += entryPay(e);
+    }
+  });
+  const monthRows = db.workers.map(w=>{
+    const m = monthMap[w.id]||{paid:0,unpaid:0};
+    return `<div style="display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px solid var(--card-line); font-size:14px;">
+      <span>${w.name}</span>
+      <span class="num">已付 ${fmt(m.paid)} · 未付 ${fmt(m.unpaid)}</span>
+    </div>`;
+  }).join('');
+
+  return `
+  ${renderSyncBar()}
+  <h2 class="section-title">选择结算范围（可自由调整）</h2>
+  <div class="preset-row">
+    <button data-preset="7" class="${window._activePreset==='7'?'active':''}">最近7天</button>
+    <button data-preset="14" class="${window._activePreset==='14'?'active':''}">最近14天</button>
+    <button data-preset="month" class="${window._activePreset==='month'?'active':''}">本月至今</button>
+  </div>
+  <label>开始日期</label>
+  <input type="date" id="r_start" value="${start}">
+  <label>结束日期</label>
+  <input type="date" id="r_end" value="${end}">
+
+  <div class="summary-grid" style="margin-top:14px;">
+    <div class="summary-box">
+      <div class="num">${fmt(totalAll)}</div>
+      <div class="cap">本次范围总工资</div>
+    </div>
+    <div class="summary-box" style="background:var(--rust);">
+      <div class="num">${fmt(totalUnpaid)}</div>
+      <div class="cap">本次范围未付</div>
+    </div>
+  </div>
+
+  ${workerBlocks || '<div class="empty">该时间范围内暂无记录</div>'}
+
+  <h2 class="section-title">累计汇总（全部记录）</h2>
+  <div class="ticket"><div class="ticket-body">${monthRows || '<div class="empty">暂无数据</div>'}</div></div>
+
+  <h2 class="section-title">按支付方式汇总（已付部分，方便报税查账）</h2>
+  <div class="ticket"><div class="ticket-body">
+    <div style="display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px solid var(--card-line); font-size:14px;">
+      <span><span class="pm-tag pm-cash">现金</span></span>
+      <span class="num">${fmt(cashTotal)}</span>
+    </div>
+    <div style="display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px solid var(--card-line); font-size:14px;">
+      <span><span class="pm-tag pm-transfer">转账</span></span>
+      <span class="num">${fmt(transferTotal)}</span>
+    </div>
+    ${unlabeledPaidTotal > 0.004 ? `<div style="display:flex; justify-content:space-between; padding:6px 0; font-size:13px; color:var(--muted);">
+      <span>未标注方式</span>
+      <span class="num">${fmt(unlabeledPaidTotal)}</span>
+    </div>` : ''}
+  </div></div>
+  `;
+}
+
+/* ---------- 导出工资单 PDF ----------
+   用 html2canvas 把带中文的排版渲染成图片，再用 jsPDF 把图片放进 PDF 直接下载，
+   不需要浏览器打印弹窗。注意：捕获用的容器必须是“真实渲染但移到屏幕外”，
+   不能用 overflow:hidden 的 0 尺寸容器裁剪它——那样等于让它完全不可见，
+   html2canvas 会截出一张空白图（这是之前空白 PDF 的真正原因）。 */
+function exportPayslipPDF(workerId, start, end){
+  if(!window.jspdf || !window.html2canvas){
+    showAlert('PDF 组件还没加载完成，请检查网络后重新打开页面再试。');
+    return;
+  }
+  const w = worker(workerId);
+  const list = db.entries.filter(e=>e.workerId===workerId && e.date>=start && e.date<=end).sort((a,b)=>a.date.localeCompare(b.date));
+  const total = list.reduce((s,e)=>s+entryPay(e),0);
+
+  const rows = list.map(e=>{
+    const ex = extrasLabel(e);
+    return `
+    <tr>
+      <td style="padding:7px 4px; border-bottom:1px solid #ddd;">${e.date}</td>
+      <td style="padding:7px 4px; border-bottom:1px solid #ddd;">${e.location||'-'}</td>
+      <td style="padding:7px 4px; border-bottom:1px solid #ddd; text-align:center;">${e.dayFraction===1?'整天':e.dayFraction===0.5?'半天':e.dayFraction}</td>
+      <td style="padding:7px 4px; border-bottom:1px solid #ddd;">${ex||'-'}</td>
+      <td style="padding:7px 4px; border-bottom:1px solid #ddd; text-align:right; white-space:nowrap;">${fmt(entryPay(e))}</td>
+    </tr>`;
+  }).join('');
+
+  const source = document.getElementById('pdfSource');
+  source.innerHTML = `
+    <div style="font-size:20px; font-weight:700; margin-bottom:2px;">A&amp;A Joinery — 工资单</div>
+    <div style="font-size:12px; color:#777; margin-bottom:18px;">Payslip</div>
+    <div style="font-size:14px; margin-bottom:4px;"><b>工人：</b>${w.name}</div>
+    <div style="font-size:14px; margin-bottom:16px;"><b>结算周期：</b>${start} ~ ${end}</div>
+    <table style="width:100%; border-collapse:collapse; font-size:13px;">
+      <thead>
+        <tr style="border-bottom:2px solid #111; text-align:left;">
+          <th style="padding:6px 4px;">日期</th>
+          <th style="padding:6px 4px;">地点/项目</th>
+          <th style="padding:6px 4px; text-align:center;">工作量</th>
+          <th style="padding:6px 4px;">额外项目</th>
+          <th style="padding:6px 4px; text-align:right;">金额</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div style="text-align:right; font-size:17px; font-weight:700; margin-top:16px; padding-top:10px; border-top:2px solid #111;">
+      合计 Total：${fmt(total)}
+    </div>
+  `;
+
+  const run = ()=>{
+    html2canvas(source, {scale:2, backgroundColor:'#ffffff'}).then(canvas=>{
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF('p','pt','a4');
+      const pageW = 595, pageH = 842, margin = 30;
+      const usableW = pageW - margin*2;
+      const usableH = pageH - margin*2;
+      const imgW = usableW;
+      const imgH = canvas.height * (imgW / canvas.width);
+      const imgData = canvas.toDataURL('image/png');
+
+      if(imgH <= usableH){
+        doc.addImage(imgData, 'PNG', margin, margin, imgW, imgH);
+      } else {
+        let heightLeft = imgH;
+        let position = margin;
+        doc.addImage(imgData, 'PNG', margin, position, imgW, imgH);
+        heightLeft -= usableH;
+        while(heightLeft > 0){
+          position = margin - (imgH - heightLeft);
+          doc.addPage();
+          doc.addImage(imgData, 'PNG', margin, position, imgW, imgH);
+          heightLeft -= usableH;
+        }
+      }
+      doc.save(`工资单-${w.name}-${start}~${end}.pdf`);
+    }).catch(()=>{
+      showAlert('生成 PDF 失败，请检查网络连接后重试。');
+    });
+  };
+  if(document.fonts && document.fonts.ready){ document.fonts.ready.then(run); }
+  else { setTimeout(run, 200); }
+}
+
+/* ---------- custom confirm/alert (native confirm()/alert() can be blocked
+   by mobile browsers when the site is launched from an "Add to Home Screen" icon) ---------- */
+function showConfirm(message, onYes){
+  const dlg = document.getElementById('dlg');
+  document.getElementById('dlgBody').innerHTML = `
+    <div class="dialog-title">确认</div>
+    <div style="margin-bottom:16px; font-size:14.5px; line-height:1.5;">${message}</div>
+    <div class="btn-row">
+      <button class="btn btn-outline" id="cf_no">取消</button>
+      <button class="btn" id="cf_yes">确定</button>
+    </div>
+  `;
+  dlg.showModal();
+  document.getElementById('cf_no').onclick = ()=>dlg.close();
+  document.getElementById('cf_yes').onclick = ()=>{ dlg.close(); onYes(); };
+}
+function showAlert(message){
+  const dlg = document.getElementById('dlg');
+  document.getElementById('dlgBody').innerHTML = `
+    <div class="dialog-title">提示</div>
+    <div style="margin-bottom:16px; font-size:14.5px; line-height:1.5;">${message}</div>
+    <div class="btn-row">
+      <button class="btn" id="al_ok">好的</button>
+    </div>
+  `;
+  dlg.showModal();
+  document.getElementById('al_ok').onclick = ()=>dlg.close();
+}
+
+/* ---------- dialogs ---------- */
+function openEditWorker(id){
+  const w = worker(id);
+  const dlg = document.getElementById('dlg');
+  document.getElementById('dlgBody').innerHTML = `
+    <div class="dialog-title">修改 ${w.name} 的日薪</div>
+    <label>日薪 ($)</label>
+    <input type="number" id="ew_rate" value="${w.dailyRate}">
+    <div class="btn-row">
+      <button class="btn btn-outline" id="ew_cancel">取消</button>
+      <button class="btn" id="ew_save">保存</button>
+    </div>
+  `;
+  dlg.showModal();
+  document.getElementById('ew_cancel').onclick = ()=>dlg.close();
+  document.getElementById('ew_save').onclick = ()=>{
+    w.dailyRate = parseFloat(document.getElementById('ew_rate').value)||w.dailyRate;
+    saveDB(); dlg.close(); render();
+  };
+}
+
+/* 在「结算」页直接修改/删除某一条记工记录。
+   这条记录本来就是记工页和结算页共用同一份数据（db.entries），
+   所以这里改完保存后，记工页的“最近记录”会自动同步显示最新结果。
+   只改这一条记录本身的日薪快照，不会影响工人信息里设置的当前日薪。 */
+function openEditEntry(entryId){
+  const e = db.entries.find(x=>x.id===entryId);
+  if(!e) return;
+  const w = worker(e.workerId);
+  const dlg = document.getElementById('dlg');
+  document.getElementById('dlgBody').innerHTML = `
+    <div class="dialog-title">修改这条记录（${w?w.name:'未知工人'}）</div>
+    <label>日期</label>
+    <input type="date" id="ee_date" value="${e.date}">
+    <label>干活地址 / 项目</label>
+    <input type="text" id="ee_loc" value="${e.location||''}" list="locHistoryList">
+    <label>备注（可选，比如是给哪个厂家/老板干的活）</label>
+    <input type="text" id="ee_note" value="${e.note||''}">
+    <label>工作量</label>
+    <select id="ee_frac">
+      <option value="1" ${e.dayFraction===1?'selected':''}>整天</option>
+      <option value="0.5" ${e.dayFraction===0.5?'selected':''}>半天</option>
+      <option value="custom" ${(e.dayFraction!==1&&e.dayFraction!==0.5)?'selected':''}>自定义比例</option>
+    </select>
+    <input type="number" id="ee_frac_custom" step="0.1" min="0" max="2"
+      value="${(e.dayFraction!==1&&e.dayFraction!==0.5)?e.dayFraction:''}"
+      style="margin-top:8px; display:${(e.dayFraction!==1&&e.dayFraction!==0.5)?'block':'none'};">
+    <label>该条使用的日薪 ($)</label>
+    <input type="number" id="ee_rate" value="${e.dailyRate}">
+    <label>支付方式</label>
+    <select id="ee_paymethod">
+      <option value="" ${!e.paymentMethod?'selected':''}>未设置</option>
+      <option value="cash" ${e.paymentMethod==='cash'?'selected':''}>现金</option>
+      <option value="transfer" ${e.paymentMethod==='transfer'?'selected':''}>转账</option>
+    </select>
+    <label>额外项目</label>
+    <div id="ee_extras"></div>
+    <div class="btn-row">
+      <button class="btn btn-outline btn-sm" id="ee_add_extra" style="width:auto;">+ 添加一项</button>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-outline" id="ee_delete" style="background:none; border-color:var(--rust); color:var(--rust);">删除记录</button>
+      <button class="btn" id="ee_save">保存修改</button>
+    </div>
+  `;
+  dlg.showModal();
+
+  const extras = Array.isArray(e.extras) ? e.extras : [];
+  if(extras.length){
+    extras.forEach(x=>addExtraRow(x.name, x.amount, 'ee_extras'));
+  } else {
+    addExtraRow('', undefined, 'ee_extras');
+  }
+
+  document.getElementById('ee_frac').addEventListener('change', function(){
+    document.getElementById('ee_frac_custom').style.display = this.value==='custom' ? 'block':'none';
+  });
+  document.getElementById('ee_add_extra').addEventListener('click', ()=> addExtraRow('', undefined, 'ee_extras'));
+
+  document.getElementById('ee_delete').onclick = ()=>{
+    showConfirm('删除这条记工记录？此操作会同步从记工页移除。', ()=>{
+      db.entries = db.entries.filter(x=>x.id!==entryId);
+      saveDB(); dlg.close(); render();
+    });
+  };
+  document.getElementById('ee_save').onclick = ()=>{
+    let frac = document.getElementById('ee_frac').value;
+    frac = frac==='custom' ? (parseFloat(document.getElementById('ee_frac_custom').value)||0) : parseFloat(frac);
+    const newExtras = [];
+    document.querySelectorAll('#ee_extras .extra-row').forEach(row=>{
+      const name = row.querySelector('.extra-name').value.trim();
+      const amount = parseFloat(row.querySelector('.extra-amount').value);
+      if(name || (amount && amount!==0)){
+        newExtras.push({ name: name || '额外项目', amount: amount||0 });
+      }
+    });
+    e.date = document.getElementById('ee_date').value || e.date;
+    e.location = document.getElementById('ee_loc').value.trim();
+    e.dayFraction = frac;
+    e.dailyRate = parseFloat(document.getElementById('ee_rate').value) || e.dailyRate;
+    e.paymentMethod = document.getElementById('ee_paymethod').value || '';
+    e.extras = newExtras;
+    e.note = document.getElementById('ee_note').value.trim();
+    recordLocationHistory(e.location);
+    saveDB(); dlg.close(); render();
+  };
+}
+
+/* ---------- events ---------- */
+function bindEvents(){
+  // log tab
+  const fracSel = document.getElementById('f_frac');
+  if(fracSel){
+    fracSel.addEventListener('change', ()=>{
+      document.getElementById('f_frac_custom').style.display = fracSel.value==='custom' ? 'block':'none';
+    });
+  }
+  const addExtraBtn = document.getElementById('addExtraBtn');
+  if(addExtraBtn) addExtraBtn.addEventListener('click', ()=> addExtraRow());
+
+  const addEntryBtn = document.getElementById('addEntryBtn');
+  if(addEntryBtn){
+    addEntryBtn.addEventListener('click', ()=>{
+      const wid = document.getElementById('f_worker').value;
+      const w = worker(wid);
+      const date = document.getElementById('f_date').value || todayStr();
+      let frac = document.getElementById('f_frac').value;
+      if(frac==='custom') frac = parseFloat(document.getElementById('f_frac_custom').value)||0;
+      else frac = parseFloat(frac);
+      const loc = document.getElementById('f_loc').value.trim();
+      const note = document.getElementById('f_note').value.trim();
+
+      const extras = [];
+      document.querySelectorAll('#extrasContainer .extra-row').forEach(row=>{
+        const name = row.querySelector('.extra-name').value.trim();
+        const amount = parseFloat(row.querySelector('.extra-amount').value);
+        if(name || (amount && amount!==0)){
+          extras.push({ name: name || '额外项目', amount: amount||0 });
+        }
+      });
+
+      db.entries.push({
+        id: uid(), workerId: wid, date, location: loc,
+        dayFraction: frac, extras, note,
+        dailyRate: w.dailyRate,
+        paid: false
+      });
+      recordLocationHistory(loc);
+      saveDB(); render();
+    });
+  }
+  document.querySelectorAll('[data-del-entry]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      showConfirm('删除这条记工记录？', ()=>{
+        db.entries = db.entries.filter(e=>e.id!==btn.dataset.delEntry);
+        saveDB(); render();
+      });
+    });
+  });
+
+  // workers tab
+  const addWorkerBtn = document.getElementById('addWorkerBtn');
+  if(addWorkerBtn){
+    addWorkerBtn.addEventListener('click', ()=>{
+      const name = document.getElementById('w_name').value.trim();
+      const rate = parseFloat(document.getElementById('w_rate').value);
+      if(!name || !rate){ showAlert('请填写姓名和日薪'); return; }
+      db.workers.push({id:uid(), name, dailyRate:rate});
+      saveDB(); render();
+    });
+  }
+  document.querySelectorAll('[data-edit-worker]').forEach(btn=>{
+    btn.addEventListener('click', ()=>openEditWorker(btn.dataset.editWorker));
+  });
+  document.querySelectorAll('[data-del-worker]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      showConfirm('删除该工人？其历史记工记录会保留但不再关联工人姓名。', ()=>{
+        db.workers = db.workers.filter(w=>w.id!==btn.dataset.delWorker);
+        saveDB(); render();
+      });
+    });
+  });
+  const saveSyncBtn = document.getElementById('saveSyncBtn');
+  if(saveSyncBtn){
+    saveSyncBtn.addEventListener('click', ()=>{
+      const t = document.getElementById('sync_token').value.trim();
+      if(!t){ showAlert('请输入密钥'); return; }
+      sync.token = t;
+      saveSync(); render();
+    });
+  }
+  const pushBtn = document.getElementById('pushBtn');
+  if(pushBtn) pushBtn.addEventListener('click', pushToCloud);
+  const pullBtn = document.getElementById('pullBtn');
+  if(pullBtn) pullBtn.addEventListener('click', pullFromCloud);
+  const disconnectSyncBtn = document.getElementById('disconnectSyncBtn');
+  if(disconnectSyncBtn) disconnectSyncBtn.addEventListener('click', disconnectSync);
+  const quickPushBtn = document.getElementById('quickPushBtn');
+  if(quickPushBtn) quickPushBtn.addEventListener('click', pushToCloud);
+  const quickPullBtn = document.getElementById('quickPullBtn');
+  if(quickPullBtn) quickPullBtn.addEventListener('click', pullFromCloud);
+  const clearLocHistoryBtn = document.getElementById('clearLocHistoryBtn');
+  if(clearLocHistoryBtn) clearLocHistoryBtn.addEventListener('click', clearLocationHistory);
+  const exportBtn = document.getElementById('exportBtn');
+  if(exportBtn){
+    exportBtn.addEventListener('click', ()=>{
+      const blob = new Blob([JSON.stringify(db,null,2)], {type:'application/json'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'aa-payroll-backup-'+todayStr()+'.json';
+      a.click(); URL.revokeObjectURL(url);
+    });
+  }
+  const importBtn = document.getElementById('importBtn');
+  const importFile = document.getElementById('importFile');
+  if(importBtn){
+    importBtn.addEventListener('click', ()=>importFile.click());
+    importFile.addEventListener('change', (ev)=>{
+      const file = ev.target.files[0];
+      if(!file) return;
+      const reader = new FileReader();
+      reader.onload = ()=>{
+        try{
+          const data = JSON.parse(reader.result);
+          showConfirm('导入将覆盖当前所有数据，确定继续？', ()=>{
+            db = data; if(!db.workers) db.workers=[]; if(!db.entries) db.entries=[]; if(!db.locationHistory) db.locationHistory=[];
+            saveDB(); render();
+          });
+        }catch(e){ showAlert('文件格式不正确'); }
+      };
+      reader.readAsText(file);
+    });
+  }
+
+  // settle tab
+  const rStart = document.getElementById('r_start');
+  const rEnd = document.getElementById('r_end');
+  if(rStart && rEnd){
+    const applyCustom = ()=>{
+      window._rangeStart = rStart.value;
+      window._rangeEnd = rEnd.value;
+      window._activePreset = null;
+      render();
+    };
+    rStart.addEventListener('change', applyCustom);
+    rEnd.addEventListener('change', applyCustom);
+  }
+  document.querySelectorAll('[data-preset]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const p = btn.dataset.preset;
+      window._activePreset = p;
+      if(p==='7'){ window._rangeStart = addDays(todayStr(),-6); window._rangeEnd = todayStr(); }
+      else if(p==='14'){ window._rangeStart = addDays(todayStr(),-13); window._rangeEnd = todayStr(); }
+      else if(p==='month'){
+        const d = new Date();
+        window._rangeStart = d.toISOString().slice(0,8)+'01';
+        window._rangeEnd = todayStr();
+      }
+      render();
+    });
+  });
+  document.querySelectorAll('[data-toggle-paid]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const wid = btn.dataset.togglePaid;
+      const s = btn.dataset.start, e2 = btn.dataset.end;
+      const list = db.entries.filter(e=>e.workerId===wid && e.date>=s && e.date<=e2);
+      const allPaid = list.every(e=>e.paid);
+      if(allPaid){
+        list.forEach(e=>e.paid = false);
+        saveDB(); render();
+      } else {
+        openMarkPaidDialog(wid, s, e2);
+      }
+    });
+  });
+  document.querySelectorAll('[data-edit-settle-entry]').forEach(btn=>{
+    btn.addEventListener('click', ()=> openEditEntry(btn.dataset.editSettleEntry));
+  });
+  document.querySelectorAll('[data-print]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      exportPayslipPDF(btn.dataset.print, btn.dataset.start, btn.dataset.end);
+    });
+  });
+}
+
+/* 选完日期后尝试让日历小窗口自动关闭（Chrome 上一般有效；
+   Safari 的日历是系统原生控件，浏览器本身不一定会响应这个，
+   如果 Safari 上还是不关闭，是浏览器本身的限制，不是代码问题）。 */
+document.addEventListener('change', function(ev){
+  if(ev.target && ev.target.tagName==='INPUT' && ev.target.type==='date'){
+    ev.target.blur();
+  }
+});
+
+render();
+</script>
+</body>
+</html>
