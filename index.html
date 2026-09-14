@@ -400,6 +400,12 @@ function openMarkPaidDialogForSelection(wid){
     list.forEach(e=>selectedEntryIds.delete(e.id));
   });
 }
+function unmarkSelectedPaid(wid){
+  const list = db.entries.filter(e=>e.workerId===wid && e.paid && selectedEntryIds.has(e.id));
+  if(list.length===0) return;
+  list.forEach(e=>{ e.paid = false; selectedEntryIds.delete(e.id); });
+  saveDB(); render();
+}
 function openMarkPaidDialogGeneric(onChoose){
   const dlg = document.getElementById('dlg');
   document.getElementById('dlgBody').innerHTML = `
@@ -708,7 +714,8 @@ function renderSettle(){
     const list = byWorker[wid].sort((a,b)=>a.date.localeCompare(b.date));
     const subtotal = list.reduce((s,e)=>s+entryPay(e),0);
     const allPaid = list.every(e=>e.paid);
-    const selectedHere = list.filter(e=>!e.paid && selectedEntryIds.has(e.id));
+    const selectedUnpaidHere = list.filter(e=>!e.paid && selectedEntryIds.has(e.id));
+    const selectedPaidHere = list.filter(e=>e.paid && selectedEntryIds.has(e.id));
     return `
     <div class="ticket">
       <div class="ticket-body">
@@ -720,7 +727,7 @@ function renderSettle(){
         ${list.map(e=>{
           const ex = extrasLabel(e);
           const pmTag = e.paid && e.paymentMethod ? `<span class="pm-tag pm-${e.paymentMethod}">${e.paymentMethod==='cash'?'现金':'转账'}</span>` : '';
-          const checkbox = !e.paid ? `<input type="checkbox" class="entry-select" data-entry-id="${e.id}" ${selectedEntryIds.has(e.id)?'checked':''} style="margin-right:8px; vertical-align:middle;">` : `<span style="display:inline-block; width:24px;"></span>`;
+          const checkbox = `<input type="checkbox" class="entry-select" data-entry-id="${e.id}" ${selectedEntryIds.has(e.id)?'checked':''} style="margin-right:8px; vertical-align:middle;">`;
           return `
           <div style="padding:6px 0; border-top:1px solid var(--card-line); font-size:13px;">
             <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
@@ -734,15 +741,20 @@ function renderSettle(){
             ${e.note? `<div style="color:var(--steel); font-size:12px; margin-left:32px;">📋 ${e.note}</div>` : ''}
           </div>`;
         }).join('')}
-        ${selectedHere.length>0 ? `
+        ${selectedUnpaidHere.length>0 ? `
         <div class="btn-row">
-          <button class="btn btn-sm" data-mark-selected="${wid}" style="flex:1; background:var(--timber-dark);">标记选中的 ${selectedHere.length} 条为已付</button>
+          <button class="btn btn-sm" data-mark-selected="${wid}" style="flex:1; background:var(--timber-dark);">标记选中的 ${selectedUnpaidHere.length} 条为已付</button>
+        </div>` : ''}
+        ${selectedPaidHere.length>0 ? `
+        <div class="btn-row">
+          <button class="btn btn-outline btn-sm" data-unmark-selected="${wid}" style="flex:1;">标记选中的 ${selectedPaidHere.length} 条为未付</button>
         </div>` : ''}
         <div class="btn-row">
           <button class="btn btn-sm ${allPaid?'btn-outline':''}" data-toggle-paid="${wid}" data-start="${start}" data-end="${end}" style="flex:1;">
             ${allPaid? '标记为未付' : '标记本次为已付'}
           </button>
           <button class="btn btn-steel btn-sm" data-print="${wid}" data-start="${start}" data-end="${end}" style="flex:1;">导出工资单 PDF</button>
+
         </div>
       </div>
     </div>`;
@@ -1222,6 +1234,9 @@ function bindEvents(){
   });
   document.querySelectorAll('[data-mark-selected]').forEach(btn=>{
     btn.addEventListener('click', ()=> openMarkPaidDialogForSelection(btn.dataset.markSelected));
+  });
+  document.querySelectorAll('[data-unmark-selected]').forEach(btn=>{
+    btn.addEventListener('click', ()=> unmarkSelectedPaid(btn.dataset.unmarkSelected));
   });
   document.querySelectorAll('[data-print]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
