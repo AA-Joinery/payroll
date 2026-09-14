@@ -92,6 +92,13 @@
   .status-paid{background:#E4E9DC; color:var(--olive);}
   .status-unpaid{background:#F3DED4; color:var(--rust);}
 
+  .pm-tag{
+    display:inline-block; font-size:10.5px; padding:1px 7px; border-radius:20px;
+    font-family:'Oswald',sans-serif; letter-spacing:.02em; vertical-align:middle;
+  }
+  .pm-cash{background:#E4E9DC; color:var(--olive);}
+  .pm-transfer{background:#DDE6E8; color:var(--steel);}
+
   label{display:block; font-size:12.5px; color:var(--muted); margin:12px 0 5px; font-family:'Oswald',sans-serif; letter-spacing:.02em;}
   input, select, textarea{
     width:100%; max-width:100%; min-width:0; box-sizing:border-box;
@@ -183,6 +190,7 @@
 </nav>
 
 <dialog id="dlg"><div class="dialog-inner" id="dlgBody"></div></dialog>
+<datalist id="locHistoryList"></datalist>
 
 <script>
 /* ---------- storage ---------- */
@@ -198,6 +206,30 @@ function saveDB(){ localStorage.setItem(DB_KEY, JSON.stringify(db)); }
 let db = loadDB();
 if(!db.workers) db.workers = [];
 if(!db.entries) db.entries = [];
+if(!db.locationHistory) db.locationHistory = [];
+
+/* 最近用过的干活地址（跟记工记录本身分开存，方便单独清空，不影响历史记录） */
+function recordLocationHistory(loc){
+  loc = (loc||'').trim();
+  if(!loc) return;
+  db.locationHistory = db.locationHistory.filter(x=>x.value!==loc);
+  db.locationHistory.unshift({value:loc, t:Date.now()});
+  if(db.locationHistory.length>20) db.locationHistory = db.locationHistory.slice(0,20);
+  saveDB();
+}
+function locationHistoryOptions(){
+  return db.locationHistory.map(x=>`<option value="${x.value.replace(/"/g,'&quot;')}"></option>`).join('');
+}
+function refreshLocationDatalist(){
+  const dl = document.getElementById('locHistoryList');
+  if(dl) dl.innerHTML = locationHistoryOptions();
+}
+function clearLocationHistory(){
+  showConfirm('清空最近地址记录？（不会影响任何已保存的记工记录，只是清掉输入建议列表）', ()=>{
+    db.locationHistory = [];
+    saveDB(); refreshLocationDatalist(); render();
+  });
+}
 
 /* ---------- GitHub Gist 云同步 ----------
    数据本身一直存在本机 localStorage 里（这是唯一的数据来源）。
@@ -300,6 +332,7 @@ async function pullFromCloud(){
       db = parsed;
       if(!db.workers) db.workers = [];
       if(!db.entries) db.entries = [];
+      if(!db.locationHistory) db.locationHistory = [];
       saveDB();
       sync.lastSync = new Date().toLocaleString('zh-CN');
       saveSync();
@@ -309,6 +342,30 @@ async function pullFromCloud(){
       showAlert('拉取失败，请检查网络连接后重试。（详细信息：'+e.message+'）');
     }
   });
+}
+
+/* 标记为已付时，先问一下这次是现金还是转账，方便以后报税查账 */
+function markRangePaid(wid, start, end, method){
+  const list = db.entries.filter(e=>e.workerId===wid && e.date>=start && e.date<=end);
+  list.forEach(e=>{ e.paid = true; if(method) e.paymentMethod = method; });
+  saveDB(); render();
+}
+function openMarkPaidDialog(wid, start, end){
+  const dlg = document.getElementById('dlg');
+  document.getElementById('dlgBody').innerHTML = `
+    <div class="dialog-title">这次是怎么付的？</div>
+    <div class="btn-row">
+      <button class="btn" id="pay_cash">现金</button>
+      <button class="btn btn-steel" id="pay_transfer">转账</button>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-outline" id="pay_skip" style="width:auto;">不记录，直接标记已付</button>
+    </div>
+  `;
+  dlg.showModal();
+  document.getElementById('pay_cash').onclick = ()=>{ dlg.close(); markRangePaid(wid,start,end,'cash'); };
+  document.getElementById('pay_transfer').onclick = ()=>{ dlg.close(); markRangePaid(wid,start,end,'transfer'); };
+  document.getElementById('pay_skip').onclick = ()=>{ dlg.close(); markRangePaid(wid,start,end,null); };
 }
 
 function disconnectSync(){
@@ -394,6 +451,7 @@ function render(){
   if(activeTab==='log') main.innerHTML = renderLog();
   else if(activeTab==='workers') main.innerHTML = renderWorkers();
   else if(activeTab==='settle') main.innerHTML = renderSettle();
+  refreshLocationDatalist();
   bindEvents();
   if(activeTab==='log'){
     // start with one empty extra row
@@ -429,16 +487,16 @@ function renderLog(){
       <input type="number" id="f_frac_custom" step="0.1" min="0" max="2" placeholder="例如 0.75" style="display:none; margin-top:8px;">
 
       <label>干活地址 / 项目</label>
-      <input type="text" id="f_loc" placeholder="例如：Chatswood 厨房安装">
+      <input type="text" id="f_loc" placeholder="例如：Chatswood 厨房安装" list="locHistoryList">
+
+      <label>备注（可选，比如是给哪个厂家/老板干的活）</label>
+      <input type="text" id="f_note" placeholder="例如：XX厂家的活">
 
       <label>额外项目（加班费、材料费等，可自己命名和填金额）</label>
       <div id="extrasContainer"></div>
       <div class="btn-row">
         <button class="btn btn-outline btn-sm" id="addExtraBtn" style="width:auto;">+ 添加一项</button>
       </div>
-
-      <label>备注（可选）</label>
-      <input type="text" id="f_note" placeholder="例如：搬运额外材料">
 
       <button class="btn" id="addEntryBtn">保存记录</button>
     </div>
@@ -542,6 +600,14 @@ function renderWorkers(){
     </div>
   </div>
 
+  <h2 class="section-title">记工小工具</h2>
+  <div class="ticket">
+    <div class="ticket-body">
+      <div class="ticket-meta" style="margin-bottom:10px;">记工页"干活地址"输入框会记住最近用过的地址，方便同一天多个工人同一地址时快速选择。这里可以手动清空这份建议列表（不会影响已保存的记工记录）。</div>
+      <button class="btn btn-outline btn-sm" id="clearLocHistoryBtn" style="width:auto;">清空最近地址记录</button>
+    </div>
+  </div>
+
   <h2 class="section-title">数据备份</h2>
   <div class="ticket">
     <div class="ticket-body">
@@ -594,10 +660,11 @@ function renderSettle(){
         <div class="ticket-meta" style="margin-bottom:8px;">${list.length} 条记录 · ${dOf(start)} ~ ${dOf(end)}</div>
         ${list.map(e=>{
           const ex = extrasLabel(e);
+          const pmTag = e.paid && e.paymentMethod ? `<span class="pm-tag pm-${e.paymentMethod}">${e.paymentMethod==='cash'?'现金':'转账'}</span>` : '';
           return `
           <div style="padding:6px 0; border-top:1px solid var(--card-line); font-size:13px;">
             <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
-              <span>${dOf(e.date)} ${e.location?'· '+e.location:''}</span>
+              <span>${dOf(e.date)} ${e.location?'· '+e.location:''} ${pmTag}</span>
               <span style="display:flex; align-items:center; gap:8px;">
                 <span class="num">${fmt(entryPay(e))}</span>
                 <button data-edit-settle-entry="${e.id}" style="background:none; border:none; color:var(--steel); font-size:12px; text-decoration:underline; cursor:pointer; padding:2px 0 2px 4px;">修改</button>
@@ -617,10 +684,18 @@ function renderSettle(){
   }).join('');
 
   const monthMap = {};
+  let cashTotal = 0, transferTotal = 0, unlabeledPaidTotal = 0;
   db.entries.forEach(e=>{
     const wid=e.workerId;
     monthMap[wid] = monthMap[wid]||{paid:0, unpaid:0};
-    if(e.paid) monthMap[wid].paid += entryPay(e); else monthMap[wid].unpaid += entryPay(e);
+    if(e.paid){
+      monthMap[wid].paid += entryPay(e);
+      if(e.paymentMethod==='cash') cashTotal += entryPay(e);
+      else if(e.paymentMethod==='transfer') transferTotal += entryPay(e);
+      else unlabeledPaidTotal += entryPay(e);
+    } else {
+      monthMap[wid].unpaid += entryPay(e);
+    }
   });
   const monthRows = db.workers.map(w=>{
     const m = monthMap[w.id]||{paid:0,unpaid:0};
@@ -658,6 +733,22 @@ function renderSettle(){
 
   <h2 class="section-title">累计汇总（全部记录）</h2>
   <div class="ticket"><div class="ticket-body">${monthRows || '<div class="empty">暂无数据</div>'}</div></div>
+
+  <h2 class="section-title">按支付方式汇总（已付部分，方便报税查账）</h2>
+  <div class="ticket"><div class="ticket-body">
+    <div style="display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px solid var(--card-line); font-size:14px;">
+      <span><span class="pm-tag pm-cash">现金</span></span>
+      <span class="num">${fmt(cashTotal)}</span>
+    </div>
+    <div style="display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px solid var(--card-line); font-size:14px;">
+      <span><span class="pm-tag pm-transfer">转账</span></span>
+      <span class="num">${fmt(transferTotal)}</span>
+    </div>
+    ${unlabeledPaidTotal > 0.004 ? `<div style="display:flex; justify-content:space-between; padding:6px 0; font-size:13px; color:var(--muted);">
+      <span>未标注方式</span>
+      <span class="num">${fmt(unlabeledPaidTotal)}</span>
+    </div>` : ''}
+  </div></div>
   `;
 }
 
@@ -808,7 +899,9 @@ function openEditEntry(entryId){
     <label>日期</label>
     <input type="date" id="ee_date" value="${e.date}">
     <label>干活地址 / 项目</label>
-    <input type="text" id="ee_loc" value="${e.location||''}">
+    <input type="text" id="ee_loc" value="${e.location||''}" list="locHistoryList">
+    <label>备注（可选，比如是给哪个厂家/老板干的活）</label>
+    <input type="text" id="ee_note" value="${e.note||''}">
     <label>工作量</label>
     <select id="ee_frac">
       <option value="1" ${e.dayFraction===1?'selected':''}>整天</option>
@@ -820,13 +913,17 @@ function openEditEntry(entryId){
       style="margin-top:8px; display:${(e.dayFraction!==1&&e.dayFraction!==0.5)?'block':'none'};">
     <label>该条使用的日薪 ($)</label>
     <input type="number" id="ee_rate" value="${e.dailyRate}">
+    <label>支付方式</label>
+    <select id="ee_paymethod">
+      <option value="" ${!e.paymentMethod?'selected':''}>未设置</option>
+      <option value="cash" ${e.paymentMethod==='cash'?'selected':''}>现金</option>
+      <option value="transfer" ${e.paymentMethod==='transfer'?'selected':''}>转账</option>
+    </select>
     <label>额外项目</label>
     <div id="ee_extras"></div>
     <div class="btn-row">
       <button class="btn btn-outline btn-sm" id="ee_add_extra" style="width:auto;">+ 添加一项</button>
     </div>
-    <label>备注（可选）</label>
-    <input type="text" id="ee_note" value="${e.note||''}">
     <div class="btn-row">
       <button class="btn btn-outline" id="ee_delete" style="background:none; border-color:var(--rust); color:var(--rust);">删除记录</button>
       <button class="btn" id="ee_save">保存修改</button>
@@ -867,8 +964,10 @@ function openEditEntry(entryId){
     e.location = document.getElementById('ee_loc').value.trim();
     e.dayFraction = frac;
     e.dailyRate = parseFloat(document.getElementById('ee_rate').value) || e.dailyRate;
+    e.paymentMethod = document.getElementById('ee_paymethod').value || '';
     e.extras = newExtras;
     e.note = document.getElementById('ee_note').value.trim();
+    recordLocationHistory(e.location);
     saveDB(); dlg.close(); render();
   };
 }
@@ -912,6 +1011,7 @@ function bindEvents(){
         dailyRate: w.dailyRate,
         paid: false
       });
+      recordLocationHistory(loc);
       saveDB(); render();
     });
   }
@@ -965,6 +1065,8 @@ function bindEvents(){
   if(quickPushBtn) quickPushBtn.addEventListener('click', pushToCloud);
   const quickPullBtn = document.getElementById('quickPullBtn');
   if(quickPullBtn) quickPullBtn.addEventListener('click', pullFromCloud);
+  const clearLocHistoryBtn = document.getElementById('clearLocHistoryBtn');
+  if(clearLocHistoryBtn) clearLocHistoryBtn.addEventListener('click', clearLocationHistory);
   const exportBtn = document.getElementById('exportBtn');
   if(exportBtn){
     exportBtn.addEventListener('click', ()=>{
@@ -987,7 +1089,7 @@ function bindEvents(){
         try{
           const data = JSON.parse(reader.result);
           showConfirm('导入将覆盖当前所有数据，确定继续？', ()=>{
-            db = data; if(!db.workers) db.workers=[]; if(!db.entries) db.entries=[];
+            db = data; if(!db.workers) db.workers=[]; if(!db.entries) db.entries=[]; if(!db.locationHistory) db.locationHistory=[];
             saveDB(); render();
           });
         }catch(e){ showAlert('文件格式不正确'); }
@@ -1029,8 +1131,12 @@ function bindEvents(){
       const s = btn.dataset.start, e2 = btn.dataset.end;
       const list = db.entries.filter(e=>e.workerId===wid && e.date>=s && e.date<=e2);
       const allPaid = list.every(e=>e.paid);
-      list.forEach(e=>e.paid = !allPaid);
-      saveDB(); render();
+      if(allPaid){
+        list.forEach(e=>e.paid = false);
+        saveDB(); render();
+      } else {
+        openMarkPaidDialog(wid, s, e2);
+      }
     });
   });
   document.querySelectorAll('[data-edit-settle-entry]').forEach(btn=>{
@@ -1042,6 +1148,15 @@ function bindEvents(){
     });
   });
 }
+
+/* 选完日期后尝试让日历小窗口自动关闭（Chrome 上一般有效；
+   Safari 的日历是系统原生控件，浏览器本身不一定会响应这个，
+   如果 Safari 上还是不关闭，是浏览器本身的限制，不是代码问题）。 */
+document.addEventListener('change', function(ev){
+  if(ev.target && ev.target.tagName==='INPUT' && ev.target.type==='date'){
+    ev.target.blur();
+  }
+});
 
 render();
 </script>
