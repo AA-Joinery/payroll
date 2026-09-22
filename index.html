@@ -378,6 +378,7 @@ async function pullFromCloud(){
 }
 
 let selectedEntryIds = new Set();
+let expandedPaidWorkers = new Set(); // 结算页里，哪些工人的"已付"记录被手动展开查看过
 
 /* 标记为已付时，先问一下这次是现金还是转账，方便以后报税查账。
    两种入口共用同一个对话框：按时间范围整批标记，或者只标记勾选出来的几条。 */
@@ -692,9 +693,9 @@ function renderSettle(){
     return `${renderSyncBar()}<div class="empty">还没有工人资料<br>请先到「工人」页添加工人，或者如果云端已有数据，点上面"拉取"</div>`;
   }
   if(!window._rangeStart || !window._rangeEnd){
-    window._rangeStart = addDays(todayStr(), -6);
+    window._rangeStart = addDays(todayStr(), -13);
     window._rangeEnd = todayStr();
-    window._activePreset = '7';
+    window._activePreset = '14';
   }
   const start = window._rangeStart, end = window._rangeEnd;
 
@@ -716,6 +717,29 @@ function renderSettle(){
     const allPaid = list.every(e=>e.paid);
     const selectedUnpaidHere = list.filter(e=>!e.paid && selectedEntryIds.has(e.id));
     const selectedPaidHere = list.filter(e=>e.paid && selectedEntryIds.has(e.id));
+    const unpaidList = list.filter(e=>!e.paid);
+    const paidList = list.filter(e=>e.paid);
+    const paidExpanded = expandedPaidWorkers.has(wid);
+    const paidSubtotal = paidList.reduce((s,e)=>s+entryPay(e),0);
+
+    const renderEntryRow = (e)=>{
+      const ex = extrasLabel(e);
+      const pmTag = e.paid && e.paymentMethod ? `<span class="pm-tag pm-${e.paymentMethod}">${e.paymentMethod==='cash'?'现金':'转账'}</span>` : '';
+      const checkbox = `<input type="checkbox" class="entry-select" data-entry-id="${e.id}" ${selectedEntryIds.has(e.id)?'checked':''} style="margin-right:8px; vertical-align:middle;">`;
+      return `
+      <div style="padding:6px 0; border-top:1px solid var(--card-line); font-size:13px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+          <span>${checkbox}${dOf(e.date)} ${e.location?'· '+e.location:''} ${pmTag}</span>
+          <span style="display:flex; align-items:center; gap:8px;">
+            <span class="num">${fmt(entryPay(e))}</span>
+            <button data-edit-settle-entry="${e.id}" style="background:none; border:none; color:var(--steel); font-size:12px; text-decoration:underline; cursor:pointer; padding:2px 0 2px 4px;">修改</button>
+          </span>
+        </div>
+        ${ex? `<div style="color:var(--muted); font-size:12px; margin-left:32px;">${ex}</div>` : ''}
+        ${e.note? `<div style="color:var(--steel); font-size:12px; margin-left:32px;">📋 ${e.note}</div>` : ''}
+      </div>`;
+    };
+
     return `
     <div class="ticket">
       <div class="ticket-body">
@@ -724,23 +748,18 @@ function renderSettle(){
           <div class="ticket-amt">${fmt(subtotal)}</div>
         </div>
         <div class="ticket-meta" style="margin-bottom:8px;">${list.length} 条记录 · ${dOf(start)} ~ ${dOf(end)}</div>
-        ${list.map(e=>{
-          const ex = extrasLabel(e);
-          const pmTag = e.paid && e.paymentMethod ? `<span class="pm-tag pm-${e.paymentMethod}">${e.paymentMethod==='cash'?'现金':'转账'}</span>` : '';
-          const checkbox = `<input type="checkbox" class="entry-select" data-entry-id="${e.id}" ${selectedEntryIds.has(e.id)?'checked':''} style="margin-right:8px; vertical-align:middle;">`;
-          return `
-          <div style="padding:6px 0; border-top:1px solid var(--card-line); font-size:13px;">
-            <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
-              <span>${checkbox}${dOf(e.date)} ${e.location?'· '+e.location:''} ${pmTag}</span>
-              <span style="display:flex; align-items:center; gap:8px;">
-                <span class="num">${fmt(entryPay(e))}</span>
-                <button data-edit-settle-entry="${e.id}" style="background:none; border:none; color:var(--steel); font-size:12px; text-decoration:underline; cursor:pointer; padding:2px 0 2px 4px;">修改</button>
-              </span>
-            </div>
-            ${ex? `<div style="color:var(--muted); font-size:12px; margin-left:32px;">${ex}</div>` : ''}
-            ${e.note? `<div style="color:var(--steel); font-size:12px; margin-left:32px;">📋 ${e.note}</div>` : ''}
-          </div>`;
-        }).join('')}
+        ${unpaidList.map(renderEntryRow).join('')}
+        ${paidList.length>0 ? (
+          paidExpanded
+          ? `<div style="padding:6px 0 2px; border-top:1px solid var(--card-line); font-size:12px; color:var(--muted); display:flex; justify-content:space-between; align-items:center;">
+               <span>已付 ${paidList.length} 条 · 合计 ${fmt(paidSubtotal)}</span>
+               <button data-toggle-paid-visible="${wid}" style="background:none; border:none; color:var(--steel); font-size:12px; text-decoration:underline; cursor:pointer;">收起</button>
+             </div>${paidList.map(renderEntryRow).join('')}`
+          : `<div style="padding:8px 0; border-top:1px solid var(--card-line); font-size:12px; color:var(--muted); display:flex; justify-content:space-between; align-items:center;">
+               <span>已付 ${paidList.length} 条 · 合计 ${fmt(paidSubtotal)}（已隐藏）</span>
+               <button data-toggle-paid-visible="${wid}" style="background:none; border:none; color:var(--steel); font-size:12px; text-decoration:underline; cursor:pointer;">展开查看</button>
+             </div>`
+        ) : ''}
         ${selectedUnpaidHere.length>0 ? `
         <div class="btn-row">
           <button class="btn btn-sm" data-mark-selected="${wid}" style="flex:1; background:var(--timber-dark);">标记选中的 ${selectedUnpaidHere.length} 条为已付</button>
@@ -1187,7 +1206,7 @@ function bindEvents(){
       window._rangeStart = rStart.value;
       window._rangeEnd = rEnd.value;
       window._activePreset = null;
-      selectedEntryIds.clear();
+      selectedEntryIds.clear(); expandedPaidWorkers.clear();
       render();
     };
     rStart.addEventListener('change', applyCustom);
@@ -1204,7 +1223,7 @@ function bindEvents(){
         window._rangeStart = d.toISOString().slice(0,8)+'01';
         window._rangeEnd = todayStr();
       }
-      selectedEntryIds.clear();
+      selectedEntryIds.clear(); expandedPaidWorkers.clear();
       render();
     });
   });
@@ -1237,6 +1256,14 @@ function bindEvents(){
   });
   document.querySelectorAll('[data-unmark-selected]').forEach(btn=>{
     btn.addEventListener('click', ()=> unmarkSelectedPaid(btn.dataset.unmarkSelected));
+  });
+  document.querySelectorAll('[data-toggle-paid-visible]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const wid = btn.dataset.togglePaidVisible;
+      if(expandedPaidWorkers.has(wid)) expandedPaidWorkers.delete(wid);
+      else expandedPaidWorkers.add(wid);
+      render();
+    });
   });
   document.querySelectorAll('[data-print]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
