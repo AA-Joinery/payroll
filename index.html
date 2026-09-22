@@ -297,18 +297,76 @@ async function findExistingGistId(){
   }catch(e){ return null; }
 }
 
+/* ---------- 合并逻辑 ----------
+   手机和电脑各自独立操作时，谁推送谁拉取的顺序不一定固定，
+   为了不管什么顺序都不会把对方设备还没同步过的记录冲掉，
+   推送和拉取都不是简单"整份覆盖"，而是先把云端和本机的数据按 id 合并：
+   - 同一条记录两边都有：保留 updatedAt（最后修改时间）更新的那一份
+   - 只有一边有：直接保留（不会丢）
+   - 删除记录不是真的从数组里拿掉，而是打上 deleted 标记（"软删除"），
+     这样"删除"这个操作本身也能在合并时正确同步到另一台设备，
+     不会出现"这边删了，合并后又从另一边复活"的情况。 */
+function mergeArrayById(localArr, remoteArr){
+  const map = new Map();
+  (localArr||[]).forEach(x=> map.set(x.id, x));
+  (remoteArr||[]).forEach(x=>{
+    const existing = map.get(x.id);
+    if(!existing){ map.set(x.id, x); }
+    else if((x.updatedAt||0) > (existing.updatedAt||0)){ map.set(x.id, x); }
+  });
+  return Array.from(map.values());
+}
+function mergeHistoryByValue(localArr, remoteArr){
+  const map = new Map();
+  (localArr||[]).forEach(x=> map.set(x.value, x));
+  (remoteArr||[]).forEach(x=>{
+    const existing = map.get(x.value);
+    if(!existing || (x.t||0) > (existing.t||0)) map.set(x.value, x);
+  });
+  return Array.from(map.values()).sort((a,b)=>(b.t||0)-(a.t||0)).slice(0,20);
+}
+function mergeDB(localDB, remoteDB){
+  return {
+    workers: mergeArrayById(localDB.workers, remoteDB.workers),
+    entries: mergeArrayById(localDB.entries, remoteDB.entries),
+    locationHistory: mergeHistoryByValue(localDB.locationHistory, remoteDB.locationHistory),
+    noteHistory: mergeHistoryByValue(localDB.noteHistory, remoteDB.noteHistory)
+  };
+}
+async function fetchCloudData(){
+  if(!sync.gistId) return null;
+  const resp = await fetch(`https://api.github.com/gists/${sync.gistId}`, {
+    headers:{ 'Authorization':'token '+sync.token }
+  });
+  if(!resp.ok) return { error: resp.status };
+  const data = await resp.json();
+  const file = data.files && data.files[GIST_FILENAME];
+  if(!file) return { error: 'format' };
+  try{ return { data: JSON.parse(file.content) }; }
+  catch(e){ return { error: 'format' }; }
+}
+
 async function pushToCloud(){
   if(!sync.token){ showAlert('请先设置 GitHub 同步密钥。'); return; }
   if(!sync.gistId){
     const existing = await findExistingGistId();
     if(existing){ sync.gistId = existing; saveSync(); }
   }
-  const body = {
-    description: 'A&A Payroll data (private, do not delete)',
-    public: false,
-    files: { [GIST_FILENAME]: { content: JSON.stringify(db, null, 2) } }
-  };
   try{
+    // 推送前先把云端现有数据拉下来跟本机合并，避免覆盖掉另一台设备还没同步过来的记录
+    if(sync.gistId){
+      const result = await fetchCloudData();
+      if(result && result.data){
+        db = mergeDB(db, result.data);
+        saveDB();
+      }
+      // result.error 时（比如密钥失效、网络问题）不阻断，继续用本机数据推送
+    }
+    const body = {
+      description: 'A&A Payroll data (private, do not delete)',
+      public: false,
+      files: { [GIST_FILENAME]: { content: JSON.stringify(db, null, 2) } }
+    };
     let resp;
     if(sync.gistId){
       resp = await fetch(`https://api.github.com/gists/${sync.gistId}`, {
@@ -332,7 +390,7 @@ async function pushToCloud(){
     sync.gistId = data.id;
     sync.lastSync = new Date().toLocaleString('zh-CN');
     saveSync();
-    showAlert('已成功推送到云端。');
+    showAlert('已成功推送到云端（已自动合并另一台设备可能有的新记录）。');
     render();
   }catch(e){
     showAlert('推送失败，请检查网络连接后重试。（详细信息：'+e.message+'）');
@@ -346,30 +404,22 @@ async function pullFromCloud(){
     if(existing){ sync.gistId = existing; saveSync(); }
   }
   if(!sync.gistId){ showAlert('还没有云端数据，请先在另一台设备上点一次"推送到云端"。'); return; }
-  showConfirm('从云端拉取数据会覆盖本机当前的所有记录，确定继续？', async ()=>{
+  showConfirm('从云端拉取并合并数据？（会把云端记录和本机记录合并在一起，不会丢失本机还没推送的新记录）', async ()=>{
     try{
-      const resp = await fetch(`https://api.github.com/gists/${sync.gistId}`, {
-        headers:{ 'Authorization':'token '+sync.token }
-      });
-      if(!resp.ok){
-        if(resp.status===401) showAlert('拉取失败：密钥不正确或已失效，请重新设置密钥。');
-        else if(resp.status===404) showAlert('拉取失败：找不到云端数据，可能已被删除。');
-        else showAlert('拉取失败（错误代码 '+resp.status+'），请检查网络后重试。');
+      const result = await fetchCloudData();
+      if(!result || result.error){
+        const err = result ? result.error : null;
+        if(err===401) showAlert('拉取失败：密钥不正确或已失效，请重新设置密钥。');
+        else if(err===404) showAlert('拉取失败：找不到云端数据，可能已被删除。');
+        else if(err==='format') showAlert('云端数据格式不正确。');
+        else showAlert('拉取失败，请检查网络后重试。');
         return;
       }
-      const data = await resp.json();
-      const file = data.files && data.files[GIST_FILENAME];
-      if(!file){ showAlert('云端数据格式不正确。'); return; }
-      const parsed = JSON.parse(file.content);
-      db = parsed;
-      if(!db.workers) db.workers = [];
-      if(!db.entries) db.entries = [];
-      if(!db.locationHistory) db.locationHistory = [];
-      if(!db.noteHistory) db.noteHistory = [];
+      db = mergeDB(db, result.data);
       saveDB();
       sync.lastSync = new Date().toLocaleString('zh-CN');
       saveSync();
-      showAlert('已从云端拉取最新数据。');
+      showAlert('已从云端拉取并合并最新数据。');
       render();
     }catch(e){
       showAlert('拉取失败，请检查网络连接后重试。（详细信息：'+e.message+'）');
@@ -382,19 +432,24 @@ let expandedPaidWorkers = new Set(); // 结算页里，哪些工人的"已付"�
 
 /* 标记为已付时，先问一下这次是现金还是转账，方便以后报税查账。
    两种入口共用同一个对话框：按时间范围整批标记，或者只标记勾选出来的几条。 */
+function getVisibleSettleEntriesForWorker(wid){
+  const start = window._rangeStart, end = window._rangeEnd;
+  const showAllUnpaid = window._showAllUnpaid !== false;
+  return db.entries.filter(e=> !e.deleted && e.workerId===wid && ((e.date>=start && e.date<=end) || (showAllUnpaid && !e.paid)));
+}
 function markEntriesPaid(entryList, method){
-  entryList.forEach(e=>{ e.paid = true; if(method) e.paymentMethod = method; });
+  entryList.forEach(e=>{ e.paid = true; if(method) e.paymentMethod = method; e.updatedAt = Date.now(); });
   saveDB(); render();
 }
-function markRangePaid(wid, start, end, method){
-  const list = db.entries.filter(e=>e.workerId===wid && e.date>=start && e.date<=end);
+function markRangePaid(wid, method){
+  const list = getVisibleSettleEntriesForWorker(wid).filter(e=>!e.paid);
   markEntriesPaid(list, method);
 }
-function openMarkPaidDialog(wid, start, end){
-  openMarkPaidDialogGeneric((method)=> markRangePaid(wid,start,end,method));
+function openMarkPaidDialog(wid){
+  openMarkPaidDialogGeneric((method)=> markRangePaid(wid,method));
 }
 function openMarkPaidDialogForSelection(wid){
-  const list = db.entries.filter(e=>e.workerId===wid && !e.paid && selectedEntryIds.has(e.id));
+  const list = db.entries.filter(e=>!e.deleted && e.workerId===wid && !e.paid && selectedEntryIds.has(e.id));
   if(list.length===0) return;
   openMarkPaidDialogGeneric((method)=>{
     markEntriesPaid(list, method);
@@ -402,9 +457,9 @@ function openMarkPaidDialogForSelection(wid){
   });
 }
 function unmarkSelectedPaid(wid){
-  const list = db.entries.filter(e=>e.workerId===wid && e.paid && selectedEntryIds.has(e.id));
+  const list = db.entries.filter(e=>!e.deleted && e.workerId===wid && e.paid && selectedEntryIds.has(e.id));
   if(list.length===0) return;
-  list.forEach(e=>{ e.paid = false; selectedEntryIds.delete(e.id); });
+  list.forEach(e=>{ e.paid = false; e.updatedAt = Date.now(); selectedEntryIds.delete(e.id); });
   saveDB(); render();
 }
 function openMarkPaidDialogGeneric(onChoose){
@@ -523,11 +578,11 @@ function render(){
 
 /* ================= 记工 (Daily Log) ================= */
 function renderLog(){
-  if(db.workers.length===0){
+  if(db.workers.filter(w=>!w.deleted).length===0){
     return `${renderSyncBar()}<div class="empty">还没有工人资料<br>请先到「工人」页添加工人，或者如果云端已有数据，点上面"拉取"</div>`;
   }
-  const recent = [...db.entries].sort((a,b)=> b.date.localeCompare(a.date) || b.id.localeCompare(a.id)).slice(0,25);
-  const options = db.workers.map(w=>`<option value="${w.id}">${w.name}（日薪 ${fmt(w.dailyRate)}）</option>`).join('');
+  const recent = [...db.entries].filter(e=>!e.deleted).sort((a,b)=> b.date.localeCompare(a.date) || b.id.localeCompare(a.id)).slice(0,25);
+  const options = db.workers.filter(w=>!w.deleted).map(w=>`<option value="${w.id}">${w.name}（日薪 ${fmt(w.dailyRate)}）</option>`).join('');
 
   return `
   ${renderSyncBar()}
@@ -608,6 +663,7 @@ function addExtraRow(name, amount, containerId){
 
 /* ================= 工人 (Workers) ================= */
 function renderWorkers(){
+  const activeWorkers = db.workers.filter(w=>!w.deleted);
   return `
   <h2 class="section-title">添加工人</h2>
   <div class="ticket">
@@ -620,8 +676,8 @@ function renderWorkers(){
     </div>
   </div>
 
-  <h2 class="section-title">工人列表 (${db.workers.length})</h2>
-  ${db.workers.length===0? '<div class="empty">还没有添加工人</div>' : db.workers.map(w=>`
+  <h2 class="section-title">工人列表 (${activeWorkers.length})</h2>
+  ${activeWorkers.length===0? '<div class="empty">还没有添加工人</div>' : activeWorkers.map(w=>`
     <div class="ticket">
       <div class="ticket-body">
         <div class="ticket-row">
@@ -689,7 +745,7 @@ function renderWorkers(){
 
 /* ================= 结算 (Settlement) — 自由日期范围 ================= */
 function renderSettle(){
-  if(db.workers.length===0){
+  if(db.workers.filter(w=>!w.deleted).length===0){
     return `${renderSyncBar()}<div class="empty">还没有工人资料<br>请先到「工人」页添加工人，或者如果云端已有数据，点上面"拉取"</div>`;
   }
   if(!window._rangeStart || !window._rangeEnd){
@@ -698,8 +754,12 @@ function renderSettle(){
     window._activePreset = '14';
   }
   const start = window._rangeStart, end = window._rangeEnd;
+  if(window._showAllUnpaid === undefined) window._showAllUnpaid = true;
+  const showAllUnpaid = window._showAllUnpaid;
 
-  const entriesInRange = db.entries.filter(e=> e.date>=start && e.date<=end);
+  /* 未付的记录不受日期范围限制，永远显示，避免因为范围没对齐而漏看；
+     已付的记录仍然按选的日期范围来看（方便查历史、算某段时间的小计）。 */
+  const entriesInRange = db.entries.filter(e=> !e.deleted && ((e.date>=start && e.date<=end) || (showAllUnpaid && !e.paid)));
   const byWorker = {};
   entriesInRange.forEach(e=>{
     byWorker[e.workerId] = byWorker[e.workerId] || [];
@@ -747,7 +807,8 @@ function renderSettle(){
           <div class="ticket-title">${w.name}</div>
           <div class="ticket-amt">${fmt(subtotal)}</div>
         </div>
-        <div class="ticket-meta" style="margin-bottom:8px;">${list.length} 条记录 · ${dOf(start)} ~ ${dOf(end)}</div>
+        <div class="ticket-meta" style="margin-bottom:8px;">${list.length} 条记录 · ${dOf(list[0].date)} ~ ${dOf(list[list.length-1].date)}</div>
+        ${showAllUnpaid && (list[0].date<start || list[list.length-1].date>end) ? `<div class="ticket-meta" style="margin-bottom:8px; color:var(--rust);">⚠ 有超出所选范围（${dOf(start)}~${dOf(end)}）的未付记录</div>` : ''}
         ${unpaidList.map(renderEntryRow).join('')}
         ${paidList.length>0 ? (
           paidExpanded
@@ -769,7 +830,7 @@ function renderSettle(){
           <button class="btn btn-outline btn-sm" data-unmark-selected="${wid}" style="flex:1;">标记选中的 ${selectedPaidHere.length} 条为未付</button>
         </div>` : ''}
         <div class="btn-row">
-          <button class="btn btn-sm ${allPaid?'btn-outline':''}" data-toggle-paid="${wid}" data-start="${start}" data-end="${end}" style="flex:1;">
+          <button class="btn btn-sm ${allPaid?'btn-outline':''}" data-toggle-paid="${wid}" style="flex:1;">
             ${allPaid? '标记为未付' : '标记本次为已付'}
           </button>
           <button class="btn btn-steel btn-sm" data-print="${wid}" data-start="${start}" data-end="${end}" style="flex:1;">导出工资单 PDF</button>
@@ -782,6 +843,7 @@ function renderSettle(){
   const monthMap = {};
   let cashTotal = 0, transferTotal = 0, unlabeledPaidTotal = 0;
   db.entries.forEach(e=>{
+    if(e.deleted) return;
     const wid=e.workerId;
     monthMap[wid] = monthMap[wid]||{paid:0, unpaid:0};
     if(e.paid){
@@ -793,7 +855,7 @@ function renderSettle(){
       monthMap[wid].unpaid += entryPay(e);
     }
   });
-  const monthRows = db.workers.map(w=>{
+  const monthRows = db.workers.filter(w=>!w.deleted).map(w=>{
     const m = monthMap[w.id]||{paid:0,unpaid:0};
     return `<div style="display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px solid var(--card-line); font-size:14px;">
       <span>${w.name}</span>
@@ -813,6 +875,11 @@ function renderSettle(){
   <input type="date" id="r_start" value="${start}">
   <label>结束日期</label>
   <input type="date" id="r_end" value="${end}">
+
+  <label style="display:flex; align-items:center; gap:8px; margin-top:14px; cursor:pointer;">
+    <input type="checkbox" id="r_showAllUnpaid" ${showAllUnpaid?'checked':''} style="margin:0;">
+    <span style="font-family:'IBM Plex Sans',sans-serif; color:var(--ink); font-size:13.5px;">未付的记录始终显示，不受上面日期范围限制（推荐开启）</span>
+  </label>
 
   <div class="summary-grid" style="margin-top:14px;">
     <div class="summary-box">
@@ -859,7 +926,7 @@ function exportPayslipPDF(workerId, start, end){
     return;
   }
   const w = worker(workerId);
-  const list = db.entries.filter(e=>e.workerId===workerId && e.date>=start && e.date<=end).sort((a,b)=>a.date.localeCompare(b.date));
+  const list = db.entries.filter(e=>!e.deleted && e.workerId===workerId && e.date>=start && e.date<=end).sort((a,b)=>a.date.localeCompare(b.date));
   const total = list.reduce((s,e)=>s+entryPay(e),0);
 
   const rows = list.map(e=>{
@@ -977,6 +1044,7 @@ function openEditWorker(id){
   document.getElementById('ew_cancel').onclick = ()=>dlg.close();
   document.getElementById('ew_save').onclick = ()=>{
     w.dailyRate = parseFloat(document.getElementById('ew_rate').value)||w.dailyRate;
+    w.updatedAt = Date.now();
     saveDB(); dlg.close(); render();
   };
 }
@@ -1041,7 +1109,7 @@ function openEditEntry(entryId){
 
   document.getElementById('ee_delete').onclick = ()=>{
     showConfirm('删除这条记工记录？此操作会同步从记工页移除。', ()=>{
-      db.entries = db.entries.filter(x=>x.id!==entryId);
+      e.deleted = true; e.updatedAt = Date.now();
       saveDB(); dlg.close(); render();
     });
   };
@@ -1063,6 +1131,7 @@ function openEditEntry(entryId){
     e.paymentMethod = document.getElementById('ee_paymethod').value || '';
     e.extras = newExtras;
     e.note = document.getElementById('ee_note').value.trim();
+    e.updatedAt = Date.now();
     recordLocationHistory(e.location);
     recordNoteHistory(e.note);
     saveDB(); dlg.close(); render();
@@ -1106,7 +1175,8 @@ function bindEvents(){
         id: uid(), workerId: wid, date, location: loc,
         dayFraction: frac, extras, note,
         dailyRate: w.dailyRate,
-        paid: false
+        paid: false,
+        updatedAt: Date.now()
       });
       recordLocationHistory(loc);
       recordNoteHistory(note);
@@ -1116,7 +1186,8 @@ function bindEvents(){
   document.querySelectorAll('[data-del-entry]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       showConfirm('删除这条记工记录？', ()=>{
-        db.entries = db.entries.filter(e=>e.id!==btn.dataset.delEntry);
+        const e = db.entries.find(e=>e.id===btn.dataset.delEntry);
+        if(e){ e.deleted = true; e.updatedAt = Date.now(); }
         saveDB(); render();
       });
     });
@@ -1129,7 +1200,7 @@ function bindEvents(){
       const name = document.getElementById('w_name').value.trim();
       const rate = parseFloat(document.getElementById('w_rate').value);
       if(!name || !rate){ showAlert('请填写姓名和日薪'); return; }
-      db.workers.push({id:uid(), name, dailyRate:rate});
+      db.workers.push({id:uid(), name, dailyRate:rate, updatedAt: Date.now()});
       saveDB(); render();
     });
   }
@@ -1139,7 +1210,8 @@ function bindEvents(){
   document.querySelectorAll('[data-del-worker]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       showConfirm('删除该工人？其历史记工记录会保留但不再关联工人姓名。', ()=>{
-        db.workers = db.workers.filter(w=>w.id!==btn.dataset.delWorker);
+        const w = db.workers.find(w=>w.id===btn.dataset.delWorker);
+        if(w){ w.deleted = true; w.updatedAt = Date.now(); }
         saveDB(); render();
       });
     });
@@ -1188,8 +1260,9 @@ function bindEvents(){
       reader.onload = ()=>{
         try{
           const data = JSON.parse(reader.result);
-          showConfirm('导入将覆盖当前所有数据，确定继续？', ()=>{
-            db = data; if(!db.workers) db.workers=[]; if(!db.entries) db.entries=[]; if(!db.locationHistory) db.locationHistory=[]; if(!db.noteHistory) db.noteHistory=[];
+          showConfirm('导入这份备份并与本机当前数据合并（不会覆盖丢失本机记录）？', ()=>{
+            const incoming = { workers:data.workers||[], entries:data.entries||[], locationHistory:data.locationHistory||[], noteHistory:data.noteHistory||[] };
+            db = mergeDB(db, incoming);
             saveDB(); render();
           });
         }catch(e){ showAlert('文件格式不正确'); }
@@ -1212,6 +1285,13 @@ function bindEvents(){
     rStart.addEventListener('change', applyCustom);
     rEnd.addEventListener('change', applyCustom);
   }
+  const rShowAllUnpaid = document.getElementById('r_showAllUnpaid');
+  if(rShowAllUnpaid){
+    rShowAllUnpaid.addEventListener('change', ()=>{
+      window._showAllUnpaid = rShowAllUnpaid.checked;
+      render();
+    });
+  }
   document.querySelectorAll('[data-preset]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       const p = btn.dataset.preset;
@@ -1230,14 +1310,13 @@ function bindEvents(){
   document.querySelectorAll('[data-toggle-paid]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       const wid = btn.dataset.togglePaid;
-      const s = btn.dataset.start, e2 = btn.dataset.end;
-      const list = db.entries.filter(e=>e.workerId===wid && e.date>=s && e.date<=e2);
+      const list = getVisibleSettleEntriesForWorker(wid);
       const allPaid = list.every(e=>e.paid);
       if(allPaid){
-        list.forEach(e=>e.paid = false);
+        list.forEach(e=>{ e.paid = false; e.updatedAt = Date.now(); });
         saveDB(); render();
       } else {
-        openMarkPaidDialog(wid, s, e2);
+        openMarkPaidDialog(wid);
       }
     });
   });
