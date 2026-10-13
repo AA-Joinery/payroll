@@ -768,7 +768,7 @@ function renderSettle(){
   if(db.workers.filter(w=>!w.deleted).length===0){
     return `${renderSyncBar()}<div class="empty">还没有工人资料<br>请先到「工人」页添加工人，或者如果云端已有数据，点上面"拉取"</div>`;
   }
-  if(!window._settleMode) window._settleMode = 'unpaid';
+  if(!window._settleMode) window._settleMode = 'all';
   const mode = window._settleMode;
   const dateOn = !!(window._filterStart && window._filterEnd);
 
