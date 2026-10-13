@@ -861,11 +861,11 @@ function renderSettle(){
         <div class="btn-row">
           <button class="btn btn-sm" data-print-justmarked="${wid}" data-ids="${justMarkedIds.join(',')}" style="flex:1; background:var(--timber-dark);">导出刚标记已付的工资单 PDF（${justMarkedIds.length}条）</button>
         </div>` : ''}
-        ${(paidList.length>0 || selectedHereIds.length>0) ? `
+        ${selectedHereIds.length>0 ? `
         <div class="btn-row">
-          ${paidList.length>0 ? `<button class="btn btn-steel btn-sm" data-print-paid="${wid}" data-ids="${paidList.map(e=>e.id).join(',')}" style="flex:1;">导出已付全部 PDF（${paidList.length}条）</button>` : ''}
-          ${selectedHereIds.length>0 ? `<button class="btn btn-steel btn-sm" data-print-selected="${wid}" data-ids="${selectedHereIds.join(',')}" style="flex:1;">导出选中 ${selectedHereIds.length} 条 PDF</button>` : ''}
-        </div>` : ''}
+          <button class="btn btn-steel btn-sm" data-print-selected="${wid}" data-ids="${selectedHereIds.join(',')}" style="flex:1;">导出选中 ${selectedHereIds.length} 条 PDF</button>
+        </div>` : (list.length>0 ? `
+        <div class="ticket-meta" style="margin-top:4px;">想导出 PDF？勾选上面想要的那几条记录，就会出现"导出选中"按钮。</div>` : '')}
       </div>
     </div>`;
   }).join('');
@@ -1366,12 +1366,6 @@ function bindEvents(){
     btn.addEventListener('click', ()=>{
       const ids = btn.dataset.ids.split(',').filter(Boolean);
       exportPayslipPDF(btn.dataset.printJustmarked, ids);
-    });
-  });
-  document.querySelectorAll('[data-print-paid]').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      const ids = btn.dataset.ids.split(',').filter(Boolean);
-      exportPayslipPDF(btn.dataset.printPaid, ids);
     });
   });
   document.querySelectorAll('[data-print-selected]').forEach(btn=>{
