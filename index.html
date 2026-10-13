@@ -430,20 +430,40 @@ async function pullFromCloud(){
 let selectedEntryIds = new Set();
 let expandedPaidWorkers = new Set(); // 结算页里，哪些工人的"已付"记录被手动展开查看过
 
-/* 标记为已付时，先问一下这次是现金还是转账，方便以后报税查账。
-   两种入口共用同一个对话框：按时间范围整批标记，或者只标记勾选出来的几条。 */
+/* 结算页筛选：全部 / 已付 / 未付 三种模式，外加可选的日期筛选（默认不限制日期，
+   避免像以前那样因为日期范围没对齐而漏看记录）。
+   标记为已付时，先问一下这次是现金还是转账，方便以后报税查账。
+   两种入口共用同一个对话框：按当前筛选整批标记，或者只标记勾选出来的几条。 */
+function matchesSettleMode(e, mode){
+  if(mode==='paid') return !!e.paid;
+  if(mode==='unpaid') return !e.paid;
+  return true; // 'all'
+}
 function getVisibleSettleEntriesForWorker(wid){
-  const start = window._rangeStart, end = window._rangeEnd;
-  const showAllUnpaid = window._showAllUnpaid !== false;
-  return db.entries.filter(e=> !e.deleted && e.workerId===wid && ((e.date>=start && e.date<=end) || (showAllUnpaid && !e.paid)));
+  const mode = window._settleMode || 'unpaid';
+  const dateOn = !!(window._filterStart && window._filterEnd);
+  return db.entries.filter(e=> !e.deleted && e.workerId===wid && matchesSettleMode(e, mode)
+    && (!dateOn || (e.date>=window._filterStart && e.date<=window._filterEnd)));
 }
 function markEntriesPaid(entryList, method){
+  if(entryList.length===0) return;
   entryList.forEach(e=>{ e.paid = true; if(method) e.paymentMethod = method; e.updatedAt = Date.now(); });
+  // 记住这一批刚标记已付的记录，方便结算页直接"只导出刚标记的这一批"，
+  // 不用担心跟历史上早就付过的记录混在一起。标记完之后自动切到"已付"视图，
+  // 这样标记完马上就能看到、导出这一批，不用自己再去点一次已付。
+  window._lastMarkedPaid = { workerId: entryList[0].workerId, ids: entryList.map(e=>e.id) };
+  window._settleMode = 'paid';
   saveDB(); render();
 }
 function markRangePaid(wid, method){
   const list = getVisibleSettleEntriesForWorker(wid).filter(e=>!e.paid);
   markEntriesPaid(list, method);
+}
+function markRangeUnpaid(wid){
+  const list = getVisibleSettleEntriesForWorker(wid).filter(e=>e.paid);
+  if(list.length===0) return;
+  list.forEach(e=>{ e.paid = false; e.updatedAt = Date.now(); });
+  saveDB(); render();
 }
 function openMarkPaidDialog(wid){
   openMarkPaidDialogGeneric((method)=> markRangePaid(wid,method));
@@ -748,18 +768,12 @@ function renderSettle(){
   if(db.workers.filter(w=>!w.deleted).length===0){
     return `${renderSyncBar()}<div class="empty">还没有工人资料<br>请先到「工人」页添加工人，或者如果云端已有数据，点上面"拉取"</div>`;
   }
-  if(!window._rangeStart || !window._rangeEnd){
-    window._rangeStart = addDays(todayStr(), -13);
-    window._rangeEnd = todayStr();
-    window._activePreset = '14';
-  }
-  const start = window._rangeStart, end = window._rangeEnd;
-  if(window._showAllUnpaid === undefined) window._showAllUnpaid = true;
-  const showAllUnpaid = window._showAllUnpaid;
+  if(!window._settleMode) window._settleMode = 'unpaid';
+  const mode = window._settleMode;
+  const dateOn = !!(window._filterStart && window._filterEnd);
 
-  /* 未付的记录不受日期范围限制，永远显示，避免因为范围没对齐而漏看；
-     已付的记录仍然按选的日期范围来看（方便查历史、算某段时间的小计）。 */
-  const entriesInRange = db.entries.filter(e=> !e.deleted && ((e.date>=start && e.date<=end) || (showAllUnpaid && !e.paid)));
+  const entriesInRange = db.entries.filter(e=> !e.deleted && matchesSettleMode(e, mode)
+    && (!dateOn || (e.date>=window._filterStart && e.date<=window._filterEnd)));
   const byWorker = {};
   entriesInRange.forEach(e=>{
     byWorker[e.workerId] = byWorker[e.workerId] || [];
@@ -774,13 +788,16 @@ function renderSettle(){
     if(!w) return '';
     const list = byWorker[wid].sort((a,b)=>a.date.localeCompare(b.date));
     const subtotal = list.reduce((s,e)=>s+entryPay(e),0);
-    const allPaid = list.every(e=>e.paid);
     const selectedUnpaidHere = list.filter(e=>!e.paid && selectedEntryIds.has(e.id));
     const selectedPaidHere = list.filter(e=>e.paid && selectedEntryIds.has(e.id));
     const unpaidList = list.filter(e=>!e.paid);
     const paidList = list.filter(e=>e.paid);
     const paidExpanded = expandedPaidWorkers.has(wid);
     const paidSubtotal = paidList.reduce((s,e)=>s+entryPay(e),0);
+    const selectedHereIds = list.filter(e=>selectedEntryIds.has(e.id)).map(e=>e.id);
+    const justMarkedIds = (window._lastMarkedPaid && window._lastMarkedPaid.workerId===wid)
+      ? window._lastMarkedPaid.ids.filter(id=> paidList.some(e=>e.id===id))
+      : [];
 
     const renderEntryRow = (e)=>{
       const ex = extrasLabel(e);
@@ -800,6 +817,23 @@ function renderSettle(){
       </div>`;
     };
 
+    const unpaidSection = unpaidList.map(renderEntryRow).join('');
+    // 已付记录：在"全部"模式下默认折叠（避免和未付混在一起看花眼），
+    // 在"已付"专属模式下本来就是专门来看这些的，所以直接全部展开显示。
+    const paidSection = paidList.length===0 ? '' : (
+      mode!=='all'
+        ? paidList.map(renderEntryRow).join('')
+        : (paidExpanded
+            ? `<div style="padding:6px 0 2px; border-top:1px solid var(--card-line); font-size:12px; color:var(--muted); display:flex; justify-content:space-between; align-items:center;">
+                 <span>已付 ${paidList.length} 条 · 合计 ${fmt(paidSubtotal)}</span>
+                 <button data-toggle-paid-visible="${wid}" style="background:none; border:none; color:var(--steel); font-size:12px; text-decoration:underline; cursor:pointer;">收起</button>
+               </div>${paidList.map(renderEntryRow).join('')}`
+            : `<div style="padding:8px 0; border-top:1px solid var(--card-line); font-size:12px; color:var(--muted); display:flex; justify-content:space-between; align-items:center;">
+                 <span>已付 ${paidList.length} 条 · 合计 ${fmt(paidSubtotal)}（已隐藏）</span>
+                 <button data-toggle-paid-visible="${wid}" style="background:none; border:none; color:var(--steel); font-size:12px; text-decoration:underline; cursor:pointer;">展开查看</button>
+               </div>`)
+    );
+
     return `
     <div class="ticket">
       <div class="ticket-body">
@@ -808,19 +842,8 @@ function renderSettle(){
           <div class="ticket-amt">${fmt(subtotal)}</div>
         </div>
         <div class="ticket-meta" style="margin-bottom:8px;">${list.length} 条记录 · ${dOf(list[0].date)} ~ ${dOf(list[list.length-1].date)}</div>
-        ${showAllUnpaid && (list[0].date<start || list[list.length-1].date>end) ? `<div class="ticket-meta" style="margin-bottom:8px; color:var(--rust);">⚠ 有超出所选范围（${dOf(start)}~${dOf(end)}）的未付记录</div>` : ''}
-        ${unpaidList.map(renderEntryRow).join('')}
-        ${paidList.length>0 ? (
-          paidExpanded
-          ? `<div style="padding:6px 0 2px; border-top:1px solid var(--card-line); font-size:12px; color:var(--muted); display:flex; justify-content:space-between; align-items:center;">
-               <span>已付 ${paidList.length} 条 · 合计 ${fmt(paidSubtotal)}</span>
-               <button data-toggle-paid-visible="${wid}" style="background:none; border:none; color:var(--steel); font-size:12px; text-decoration:underline; cursor:pointer;">收起</button>
-             </div>${paidList.map(renderEntryRow).join('')}`
-          : `<div style="padding:8px 0; border-top:1px solid var(--card-line); font-size:12px; color:var(--muted); display:flex; justify-content:space-between; align-items:center;">
-               <span>已付 ${paidList.length} 条 · 合计 ${fmt(paidSubtotal)}（已隐藏）</span>
-               <button data-toggle-paid-visible="${wid}" style="background:none; border:none; color:var(--steel); font-size:12px; text-decoration:underline; cursor:pointer;">展开查看</button>
-             </div>`
-        ) : ''}
+        ${unpaidSection}
+        ${paidSection}
         ${selectedUnpaidHere.length>0 ? `
         <div class="btn-row">
           <button class="btn btn-sm" data-mark-selected="${wid}" style="flex:1; background:var(--timber-dark);">标记选中的 ${selectedUnpaidHere.length} 条为已付</button>
@@ -829,13 +852,20 @@ function renderSettle(){
         <div class="btn-row">
           <button class="btn btn-outline btn-sm" data-unmark-selected="${wid}" style="flex:1;">标记选中的 ${selectedPaidHere.length} 条为未付</button>
         </div>` : ''}
+        ${(unpaidList.length>0 || paidList.length>0) ? `
         <div class="btn-row">
-          <button class="btn btn-sm ${allPaid?'btn-outline':''}" data-toggle-paid="${wid}" style="flex:1;">
-            ${allPaid? '标记为未付' : '标记本次为已付'}
-          </button>
-          <button class="btn btn-steel btn-sm" data-print="${wid}" data-start="${start}" data-end="${end}" style="flex:1;">导出工资单 PDF</button>
-
-        </div>
+          ${unpaidList.length>0 ? `<button class="btn btn-sm" data-mark-batch-paid="${wid}" style="flex:1;">标记本次为已付</button>` : ''}
+          ${paidList.length>0 ? `<button class="btn btn-outline btn-sm" data-mark-batch-unpaid="${wid}" style="flex:1;">标记本次为未付</button>` : ''}
+        </div>` : ''}
+        ${justMarkedIds.length>0 ? `
+        <div class="btn-row">
+          <button class="btn btn-sm" data-print-justmarked="${wid}" data-ids="${justMarkedIds.join(',')}" style="flex:1; background:var(--timber-dark);">导出刚标记已付的工资单 PDF（${justMarkedIds.length}条）</button>
+        </div>` : ''}
+        ${(paidList.length>0 || selectedHereIds.length>0) ? `
+        <div class="btn-row">
+          ${paidList.length>0 ? `<button class="btn btn-steel btn-sm" data-print-paid="${wid}" data-ids="${paidList.map(e=>e.id).join(',')}" style="flex:1;">导出已付全部 PDF（${paidList.length}条）</button>` : ''}
+          ${selectedHereIds.length>0 ? `<button class="btn btn-steel btn-sm" data-print-selected="${wid}" data-ids="${selectedHereIds.join(',')}" style="flex:1;">导出选中 ${selectedHereIds.length} 条 PDF</button>` : ''}
+        </div>` : ''}
       </div>
     </div>`;
   }).join('');
@@ -865,34 +895,36 @@ function renderSettle(){
 
   return `
   ${renderSyncBar()}
-  <h2 class="section-title">选择结算范围（可自由调整）</h2>
+  <h2 class="section-title">查看范围</h2>
   <div class="preset-row">
-    <button data-preset="7" class="${window._activePreset==='7'?'active':''}">最近7天</button>
-    <button data-preset="14" class="${window._activePreset==='14'?'active':''}">最近14天</button>
-    <button data-preset="month" class="${window._activePreset==='month'?'active':''}">本月至今</button>
+    <button data-mode="unpaid" class="${mode==='unpaid'?'active':''}">未付</button>
+    <button data-mode="paid" class="${mode==='paid'?'active':''}">已付</button>
+    <button data-mode="all" class="${mode==='all'?'active':''}">全部</button>
   </div>
-  <label>开始日期</label>
-  <input type="date" id="r_start" value="${start}">
-  <label>结束日期</label>
-  <input type="date" id="r_end" value="${end}">
 
-  <label style="display:flex; align-items:center; gap:8px; margin-top:14px; cursor:pointer;">
-    <input type="checkbox" id="r_showAllUnpaid" ${showAllUnpaid?'checked':''} style="margin:0;">
-    <span style="font-family:'IBM Plex Sans',sans-serif; color:var(--ink); font-size:13.5px;">未付的记录始终显示，不受上面日期范围限制（推荐开启）</span>
-  </label>
+  <details style="margin-top:12px;" ${dateOn?'open':''}>
+    <summary style="cursor:pointer; color:var(--steel); font-size:13.5px;">按日期筛选（可选，默认不限制日期，避免漏看）</summary>
+    <div style="margin-top:10px;">
+      <label>开始日期</label>
+      <input type="date" id="r_start" value="${window._filterStart||''}">
+      <label>结束日期</label>
+      <input type="date" id="r_end" value="${window._filterEnd||''}">
+      ${dateOn ? `<div class="btn-row"><button class="btn btn-outline btn-sm" id="clearDateFilterBtn" style="width:auto;">清除日期筛选</button></div>` : ''}
+    </div>
+  </details>
 
   <div class="summary-grid" style="margin-top:14px;">
     <div class="summary-box">
       <div class="num">${fmt(totalAll)}</div>
-      <div class="cap">本次范围总工资</div>
+      <div class="cap">${mode==='unpaid'?'未付合计':mode==='paid'?'已付合计':'本次合计'}</div>
     </div>
     <div class="summary-box" style="background:var(--rust);">
       <div class="num">${fmt(totalUnpaid)}</div>
-      <div class="cap">本次范围未付</div>
+      <div class="cap">其中未付</div>
     </div>
   </div>
 
-  ${workerBlocks || '<div class="empty">该时间范围内暂无记录</div>'}
+  ${workerBlocks || '<div class="empty">该筛选条件下暂无记录</div>'}
 
   <h2 class="section-title">累计汇总（全部记录）</h2>
   <div class="ticket"><div class="ticket-body">${monthRows || '<div class="empty">暂无数据</div>'}</div></div>
@@ -920,14 +952,17 @@ function renderSettle(){
    不需要浏览器打印弹窗。注意：捕获用的容器必须是“真实渲染但移到屏幕外”，
    不能用 overflow:hidden 的 0 尺寸容器裁剪它——那样等于让它完全不可见，
    html2canvas 会截出一张空白图（这是之前空白 PDF 的真正原因）。 */
-function exportPayslipPDF(workerId, start, end){
+function exportPayslipPDF(workerId, entryIds){
   if(!window.jspdf || !window.html2canvas){
     showAlert('PDF 组件还没加载完成，请检查网络后重新打开页面再试。');
     return;
   }
   const w = worker(workerId);
-  const list = db.entries.filter(e=>!e.deleted && e.workerId===workerId && e.date>=start && e.date<=end).sort((a,b)=>a.date.localeCompare(b.date));
+  const idSet = new Set(entryIds);
+  const list = db.entries.filter(e=>!e.deleted && e.workerId===workerId && idSet.has(e.id)).sort((a,b)=>a.date.localeCompare(b.date));
+  if(list.length===0){ showAlert('没有可导出的记录。'); return; }
   const total = list.reduce((s,e)=>s+entryPay(e),0);
+  const start = list[0].date, end = list[list.length-1].date;
 
   const rows = list.map(e=>{
     const ex = extrasLabel(e);
@@ -1275,50 +1310,33 @@ function bindEvents(){
   const rStart = document.getElementById('r_start');
   const rEnd = document.getElementById('r_end');
   if(rStart && rEnd){
-    const applyCustom = ()=>{
-      window._rangeStart = rStart.value;
-      window._rangeEnd = rEnd.value;
-      window._activePreset = null;
-      selectedEntryIds.clear(); expandedPaidWorkers.clear();
+    const applyDateFilter = ()=>{
+      window._filterStart = rStart.value || null;
+      window._filterEnd = rEnd.value || null;
       render();
     };
-    rStart.addEventListener('change', applyCustom);
-    rEnd.addEventListener('change', applyCustom);
+    rStart.addEventListener('change', applyDateFilter);
+    rEnd.addEventListener('change', applyDateFilter);
   }
-  const rShowAllUnpaid = document.getElementById('r_showAllUnpaid');
-  if(rShowAllUnpaid){
-    rShowAllUnpaid.addEventListener('change', ()=>{
-      window._showAllUnpaid = rShowAllUnpaid.checked;
+  const clearDateFilterBtn = document.getElementById('clearDateFilterBtn');
+  if(clearDateFilterBtn){
+    clearDateFilterBtn.addEventListener('click', ()=>{
+      window._filterStart = null; window._filterEnd = null;
       render();
     });
   }
-  document.querySelectorAll('[data-preset]').forEach(btn=>{
+  document.querySelectorAll('[data-mode]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
-      const p = btn.dataset.preset;
-      window._activePreset = p;
-      if(p==='7'){ window._rangeStart = addDays(todayStr(),-6); window._rangeEnd = todayStr(); }
-      else if(p==='14'){ window._rangeStart = addDays(todayStr(),-13); window._rangeEnd = todayStr(); }
-      else if(p==='month'){
-        const d = new Date();
-        window._rangeStart = d.toISOString().slice(0,8)+'01';
-        window._rangeEnd = todayStr();
-      }
+      window._settleMode = btn.dataset.mode;
       selectedEntryIds.clear(); expandedPaidWorkers.clear();
       render();
     });
   });
-  document.querySelectorAll('[data-toggle-paid]').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      const wid = btn.dataset.togglePaid;
-      const list = getVisibleSettleEntriesForWorker(wid);
-      const allPaid = list.every(e=>e.paid);
-      if(allPaid){
-        list.forEach(e=>{ e.paid = false; e.updatedAt = Date.now(); });
-        saveDB(); render();
-      } else {
-        openMarkPaidDialog(wid);
-      }
-    });
+  document.querySelectorAll('[data-mark-batch-paid]').forEach(btn=>{
+    btn.addEventListener('click', ()=> openMarkPaidDialog(btn.dataset.markBatchPaid));
+  });
+  document.querySelectorAll('[data-mark-batch-unpaid]').forEach(btn=>{
+    btn.addEventListener('click', ()=> markRangeUnpaid(btn.dataset.markBatchUnpaid));
   });
   document.querySelectorAll('[data-edit-settle-entry]').forEach(btn=>{
     btn.addEventListener('click', ()=> openEditEntry(btn.dataset.editSettleEntry));
@@ -1344,9 +1362,22 @@ function bindEvents(){
       render();
     });
   });
-  document.querySelectorAll('[data-print]').forEach(btn=>{
+  document.querySelectorAll('[data-print-justmarked]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
-      exportPayslipPDF(btn.dataset.print, btn.dataset.start, btn.dataset.end);
+      const ids = btn.dataset.ids.split(',').filter(Boolean);
+      exportPayslipPDF(btn.dataset.printJustmarked, ids);
+    });
+  });
+  document.querySelectorAll('[data-print-paid]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const ids = btn.dataset.ids.split(',').filter(Boolean);
+      exportPayslipPDF(btn.dataset.printPaid, ids);
+    });
+  });
+  document.querySelectorAll('[data-print-selected]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const ids = btn.dataset.ids.split(',').filter(Boolean);
+      exportPayslipPDF(btn.dataset.printSelected, ids);
     });
   });
 }
