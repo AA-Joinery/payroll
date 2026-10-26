@@ -894,11 +894,16 @@ function renderSettle(){
         <div class="btn-row">
           <button class="btn btn-outline btn-sm" data-unmark-selected="${wid}" style="flex:1;">标记选中的 ${selectedPaidHere.length} 条为未付</button>
         </div>` : ''}
-        ${(unpaidList.length>0 || paidList.length>0) ? `
-        <div class="btn-row">
-          ${unpaidList.length>0 ? `<button class="btn btn-sm" data-mark-batch-paid="${wid}" style="flex:1;">标记本次为已付</button>` : ''}
-          ${paidList.length>0 ? `<button class="btn btn-outline btn-sm" data-mark-batch-unpaid="${wid}" style="flex:1;">标记本次为未付</button>` : ''}
-        </div>` : ''}
+        ${(()=>{
+          // 一旦勾选了记录，就隐藏"整批"按钮，只留"标记选中的N条"，避免误点把没勾的也一起标了
+          const showBatchPaid = unpaidList.length>0 && selectedUnpaidHere.length===0;
+          const showBatchUnpaid = paidList.length>0 && selectedPaidHere.length===0;
+          if(!showBatchPaid && !showBatchUnpaid) return '';
+          return `<div class="btn-row">
+            ${showBatchPaid ? `<button class="btn btn-sm" data-mark-batch-paid="${wid}" style="flex:1;">标记本次为已付</button>` : ''}
+            ${showBatchUnpaid ? `<button class="btn btn-outline btn-sm" data-mark-batch-unpaid="${wid}" style="flex:1;">标记本次为未付</button>` : ''}
+          </div>`;
+        })()}
         ${selectedHereIds.length>0 ? `
         <div class="btn-row">
           <button class="btn btn-steel btn-sm" data-print-selected="${wid}" data-ids="${selectedHereIds.join(',')}" style="flex:1;">导出选中 ${selectedHereIds.length} 条 PDF</button>
