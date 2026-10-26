@@ -429,6 +429,7 @@ async function pullFromCloud(){
 
 let selectedEntryIds = new Set();
 let expandedPaidWorkers = new Set(); // 结算页里，哪些工人的"已付"记录被手动展开查看过
+let batchOpenOverride = {};          // 付款批次的手动展开/收起状态（没手动动过的按默认：未导出展开，已导出收起）
 
 /* 结算页筛选：全部 / 已付 / 未付 三种模式，外加可选的日期筛选（默认不限制日期，
    避免像以前那样因为日期范围没对齐而漏看记录）。
@@ -447,11 +448,11 @@ function getVisibleSettleEntriesForWorker(wid){
 }
 function markEntriesPaid(entryList, method){
   if(entryList.length===0) return;
-  entryList.forEach(e=>{ e.paid = true; if(method) e.paymentMethod = method; e.updatedAt = Date.now(); });
-  // 记住这一批刚标记已付的记录，方便结算页直接"只导出刚标记的这一批"，
-  // 不用担心跟历史上早就付过的记录混在一起。标记完之后自动切到"已付"视图，
-  // 这样标记完马上就能看到、导出这一批，不用自己再去点一次已付。
-  window._lastMarkedPaid = { workerId: entryList[0].workerId, ids: entryList.map(e=>e.id) };
+  // 给这一批打上同一个"批次时间"(paidBatch)，每个工人各自最新的一批就是
+  // "上次标记的那批"。记在记录本身上，所以多个工人分别标记、刷新页面、
+  // 换设备同步之后，每个工人都还能一键导出自己上次那批。
+  const batch = Date.now();
+  entryList.forEach(e=>{ e.paid = true; if(method) e.paymentMethod = method; e.paidBatch = batch; e.updatedAt = batch; });
   window._settleMode = 'paid';
   saveDB(); render();
 }
@@ -462,7 +463,7 @@ function markRangePaid(wid, method){
 function markRangeUnpaid(wid){
   const list = getVisibleSettleEntriesForWorker(wid).filter(e=>e.paid);
   if(list.length===0) return;
-  list.forEach(e=>{ e.paid = false; e.updatedAt = Date.now(); });
+  list.forEach(e=>{ e.paid = false; delete e.paidBatch; delete e.pdfExportedAt; e.updatedAt = Date.now(); });
   saveDB(); render();
 }
 function openMarkPaidDialog(wid){
@@ -479,7 +480,7 @@ function openMarkPaidDialogForSelection(wid){
 function unmarkSelectedPaid(wid){
   const list = db.entries.filter(e=>!e.deleted && e.workerId===wid && e.paid && selectedEntryIds.has(e.id));
   if(list.length===0) return;
-  list.forEach(e=>{ e.paid = false; e.updatedAt = Date.now(); selectedEntryIds.delete(e.id); });
+  list.forEach(e=>{ e.paid = false; delete e.paidBatch; delete e.pdfExportedAt; e.updatedAt = Date.now(); selectedEntryIds.delete(e.id); });
   saveDB(); render();
 }
 function openMarkPaidDialogGeneric(onChoose){
@@ -795,9 +796,6 @@ function renderSettle(){
     const paidExpanded = expandedPaidWorkers.has(wid);
     const paidSubtotal = paidList.reduce((s,e)=>s+entryPay(e),0);
     const selectedHereIds = list.filter(e=>selectedEntryIds.has(e.id)).map(e=>e.id);
-    const justMarkedIds = (window._lastMarkedPaid && window._lastMarkedPaid.workerId===wid)
-      ? window._lastMarkedPaid.ids.filter(id=> paidList.some(e=>e.id===id))
-      : [];
 
     const renderEntryRow = (e)=>{
       const ex = extrasLabel(e);
@@ -818,16 +816,60 @@ function renderSettle(){
     };
 
     const unpaidSection = unpaidList.map(renderEntryRow).join('');
-    // 已付记录：在"全部"模式下默认折叠（避免和未付混在一起看花眼），
-    // 在"已付"专属模式下本来就是专门来看这些的，所以直接全部展开显示。
+
+    // 已付记录按"付款批次"分组：每次点"标记为已付"就是一批（对应你每两周发一次工资，
+    // 不用管日历上的14天）。没导出过PDF的批次默认展开，导出过的自动收起。
+    // 早期（没有批次信息的）旧记录按月份归一组。
+    const groupMap = {};
+    paidList.forEach(e=>{
+      const key = e.paidBatch ? ('b'+e.paidBatch) : ('m'+e.date.slice(0,7));
+      if(!groupMap[key]) groupMap[key] = { key, batch: e.paidBatch||null, month: e.date.slice(0,7), items: [] };
+      groupMap[key].items.push(e);
+    });
+    const groupArr = Object.values(groupMap).map(g=>{
+      g.items.sort((a,b)=>a.date.localeCompare(b.date));
+      g.minDate = g.items[0].date;
+      g.maxDate = g.items[g.items.length-1].date;
+      g.total = g.items.reduce((s,e)=>s+entryPay(e),0);
+      g.exported = g.items.every(e=>e.pdfExportedAt);
+      return g;
+    }).sort((a,b)=> b.maxDate.localeCompare(a.maxDate));
+
+    const renderBatchGroup = (g)=>{
+      const okey = wid+':'+g.key;
+      const open = (okey in batchOpenOverride) ? batchOpenOverride[okey] : (g.batch ? !g.exported : false);
+      const methods = [...new Set(g.items.map(e=>e.paymentMethod).filter(Boolean))];
+      const pmTags = methods.map(m=>`<span class="pm-tag pm-${m}">${m==='cash'?'现金':'转账'}</span>`).join(' ');
+      let title;
+      if(g.batch){ const d = new Date(g.batch); title = `${d.getMonth()+1}/${d.getDate()} 付款`; }
+      else { title = `${g.month.replace('-','年')}月（早期记录）`; }
+      const status = g.exported
+        ? `<span class="pm-tag" style="background:#e3e8e3; color:#4a5a4a;">✓ 已导出PDF</span>`
+        : `<span class="pm-tag" style="background:var(--rust); color:#fff;">未导出PDF</span>`;
+      return `
+      <div style="margin-top:10px; border:1px solid var(--card-line); border-radius:10px; padding:10px 12px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+          <div style="font-size:14px; font-weight:600;">💰 ${title} ${status}</div>
+          <div class="num">${fmt(g.total)}</div>
+        </div>
+        <div class="ticket-meta" style="margin:2px 0 8px;">${g.items.length} 条 · ${dOf(g.minDate)} ~ ${dOf(g.maxDate)} ${pmTags}</div>
+        <div class="btn-row" style="margin:0;">
+          <button class="btn btn-steel btn-sm" data-print-batch="${wid}" data-ids="${g.items.map(e=>e.id).join(',')}" style="flex:1;">导出这批 PDF</button>
+          <button class="btn btn-outline btn-sm" data-toggle-batch="${okey}" data-open="${open?1:0}" style="flex:1;">${open?'收起明细':'展开明细'}</button>
+        </div>
+        ${open ? g.items.map(renderEntryRow).join('') : ''}
+      </div>`;
+    };
+    const batchesHtml = groupArr.map(renderBatchGroup).join('');
+
     const paidSection = paidList.length===0 ? '' : (
       mode!=='all'
-        ? paidList.map(renderEntryRow).join('')
+        ? batchesHtml
         : (paidExpanded
             ? `<div style="padding:6px 0 2px; border-top:1px solid var(--card-line); font-size:12px; color:var(--muted); display:flex; justify-content:space-between; align-items:center;">
                  <span>已付 ${paidList.length} 条 · 合计 ${fmt(paidSubtotal)}</span>
                  <button data-toggle-paid-visible="${wid}" style="background:none; border:none; color:var(--steel); font-size:12px; text-decoration:underline; cursor:pointer;">收起</button>
-               </div>${paidList.map(renderEntryRow).join('')}`
+               </div>${batchesHtml}`
             : `<div style="padding:8px 0; border-top:1px solid var(--card-line); font-size:12px; color:var(--muted); display:flex; justify-content:space-between; align-items:center;">
                  <span>已付 ${paidList.length} 条 · 合计 ${fmt(paidSubtotal)}（已隐藏）</span>
                  <button data-toggle-paid-visible="${wid}" style="background:none; border:none; color:var(--steel); font-size:12px; text-decoration:underline; cursor:pointer;">展开查看</button>
@@ -857,15 +899,11 @@ function renderSettle(){
           ${unpaidList.length>0 ? `<button class="btn btn-sm" data-mark-batch-paid="${wid}" style="flex:1;">标记本次为已付</button>` : ''}
           ${paidList.length>0 ? `<button class="btn btn-outline btn-sm" data-mark-batch-unpaid="${wid}" style="flex:1;">标记本次为未付</button>` : ''}
         </div>` : ''}
-        ${justMarkedIds.length>0 ? `
-        <div class="btn-row">
-          <button class="btn btn-sm" data-print-justmarked="${wid}" data-ids="${justMarkedIds.join(',')}" style="flex:1; background:var(--timber-dark);">导出刚标记已付的工资单 PDF（${justMarkedIds.length}条）</button>
-        </div>` : ''}
         ${selectedHereIds.length>0 ? `
         <div class="btn-row">
           <button class="btn btn-steel btn-sm" data-print-selected="${wid}" data-ids="${selectedHereIds.join(',')}" style="flex:1;">导出选中 ${selectedHereIds.length} 条 PDF</button>
-        </div>` : (list.length>0 ? `
-        <div class="ticket-meta" style="margin-top:4px;">想导出 PDF？勾选上面想要的那几条记录，就会出现"导出选中"按钮。</div>` : '')}
+        </div>` : (paidList.length>0 ? `
+        <div class="ticket-meta" style="margin-top:8px;">每个付款批次上有"导出这批 PDF"；想自己挑几天导出，就勾选记录，会出现"导出选中"按钮。</div>` : '')}
       </div>
     </div>`;
   }).join('');
@@ -1025,6 +1063,11 @@ function exportPayslipPDF(workerId, entryIds){
         }
       }
       doc.save(`工资单-${w.name}-${start}~${end}.pdf`);
+      // 记下这些记录已经导出过PDF：对应的付款批次会自动收起，没导出过的继续展开
+      const stamp = Date.now();
+      list.forEach(e=>{ e.pdfExportedAt = stamp; e.updatedAt = stamp; });
+      batchOpenOverride = {};
+      saveDB(); render();
     }).catch(()=>{
       showAlert('生成 PDF 失败，请检查网络连接后重试。');
     });
@@ -1362,10 +1405,16 @@ function bindEvents(){
       render();
     });
   });
-  document.querySelectorAll('[data-print-justmarked]').forEach(btn=>{
+  document.querySelectorAll('[data-print-batch]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       const ids = btn.dataset.ids.split(',').filter(Boolean);
-      exportPayslipPDF(btn.dataset.printJustmarked, ids);
+      exportPayslipPDF(btn.dataset.printBatch, ids);
+    });
+  });
+  document.querySelectorAll('[data-toggle-batch]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      batchOpenOverride[btn.dataset.toggleBatch] = btn.dataset.open !== '1';
+      render();
     });
   });
   document.querySelectorAll('[data-print-selected]').forEach(btn=>{
